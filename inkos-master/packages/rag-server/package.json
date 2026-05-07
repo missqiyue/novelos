@@ -1,0 +1,10 @@
+{
+  "name": "@inkos/rag-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Python RAG microservice for OmniWriter",
+  "scripts": {
+    "start": "uvicorn app.main:app --host 0.0.0.0 --port 8088",
+    "dev": "python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8088 --reload"
+  }
+}

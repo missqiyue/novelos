@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

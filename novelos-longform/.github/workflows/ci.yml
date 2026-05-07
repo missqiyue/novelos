@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: novelos-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: novelos-app/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  rust-check:
+    name: Rust Check & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: novelos-app/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - name: Cargo check
+        run: cargo check --locked
+      - name: Cargo test
+        run: cargo test --locked
+
+  build-tauri:
+    name: Tauri Build
+    needs: [lint-and-test, rust-check]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: novelos-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: novelos-app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - run: npm ci
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli
+      - name: Build Tauri
+        run: cargo tauri build --ci
+        working-directory: novelos-app/src-tauri
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: novelos-${{ runner.os }}-${{ runner.arch }}
+          path: novelos-app/src-tauri/target/release/bundle/
