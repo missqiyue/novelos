@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    name: Build & Release (${{ matrix.platform.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            label: macos-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            label: macos-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x86_64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: linux-x86_64
+    runs-on: ${{ matrix.platform.os }}
+    defaults:
+      run:
+        working-directory: novelos-app
+    env:
+      # Updater signing key — generate with: cargo tauri signer generate -w ~/.tauri/novelos.key
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: novelos-app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - run: npm ci
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli
+
+      # ─── macOS: sign & notarize ───
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Build Tauri (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cargo tauri build --target ${{ matrix.platform.target }}
+
+      - name: Notarize macOS app
+        if: runner.os == 'macOS'
+        run: |
+          BUNDLE_DIR="src-tauri/target/${{ matrix.platform.target }}/release/bundle"
+          DMG=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" -type f 2>/dev/null | head -1)
+          if [ -n "$DMG" ]; then
+            echo "Notarizing $DMG..."
+            xcrun notarytool submit "$DMG" \
+              --apple-id "${{ secrets.APPLE_ID }}" \
+              --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+              --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+              --wait
+            xcrun stapler staple "$DMG"
+            echo "Notarization complete."
+          fi
+
+      # ─── Windows: sign with EV cert ───
+      - name: Build Tauri (Windows)
+        if: runner.os == 'Windows'
+        run: cargo tauri build --target ${{ matrix.platform.target }}
+
+      # ─── Linux: build ───
+      - name: Build Tauri (Linux)
+        if: runner.os == 'Linux'
+        run: cargo tauri build --target ${{ matrix.platform.target }}
+
+      # ─── Upload to GitHub Release ───
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            novelos-app/src-tauri/target/${{ matrix.platform.target }}/release/bundle/**/*.dmg
+            novelos-app/src-tauri/target/${{ matrix.platform.target }}/release/bundle/**/*.msi
+            novelos-app/src-tauri/target/${{ matrix.platform.target }}/release/bundle/**/*.exe
+            novelos-app/src-tauri/target/${{ matrix.platform.target }}/release/bundle/**/*.deb
+            novelos-app/src-tauri/target/${{ matrix.platform.target }}/release/bundle/**/*.AppImage
+            novelos-app/src-tauri/target/${{ matrix.platform.target }}/release/bundle/**/latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

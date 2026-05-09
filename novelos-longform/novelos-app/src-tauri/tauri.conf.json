@@ -28,14 +28,10 @@
       "endpoints": [
         "https://github.com/novelos/longform/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_WITH_YOUR_PUBLIC_KEY",
+      "pubkey": "",
       "windows": {
         "installMode": "passive"
       }
-    },
-    "dialog": {
-      "open": true,
-      "save": true
     }
   },
   "bundle": {
@@ -52,7 +48,9 @@
     "shortDescription": "AI-powered long-form novel writing system",
     "longDescription": "NovelOS Longform is an AI-driven long-form novel creation system with canon management, outline tree, chapter workbench, and multi-agent AI support.",
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": null,
+      "entitlements": "entitlements.plist"
     },
     "windows": {
       "webviewInstallMode": {
@@ -60,7 +58,10 @@
       },
       "wix": null,
       "nsis": {
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "displayLanguageSelector": true
       }
     }

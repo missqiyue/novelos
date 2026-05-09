@@ -7,11 +7,12 @@ mod llm;
 pub mod orchestrator;
 pub mod rag;
 
-use commands::llm::LlmState;
-use commands::rag::RagState;
+use commands::llm::{LlmState, StreamCancelTokens};
 use commands::task_manager::TaskRegistry;
 use db::DbState;
-use tauri::Manager;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,12 +20,28 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Notify frontend before closing so it can emergency-save
+                let _ = window.emit("close-requested", ());
+                // Prevent default close — frontend will call app.exit() after saving
+                api.prevent_close();
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             let db_state = DbState::new(&handle)?;
             app.manage(db_state);
+
+            // Open devtools for debugging
+            #[cfg(debug_assertions)]
+            {
+                let window = app.get_webview_window("main").unwrap();
+                window.open_devtools();
+            }
             app.manage(LlmState::new());
-            app.manage(RagState::new());
+            app.manage(StreamCancelTokens(Mutex::new(HashMap::new())));
             app.manage(TaskRegistry::new());
 
             if cfg!(debug_assertions) {
@@ -48,6 +65,7 @@ pub fn run() {
             commands::project::export_project_md,
             commands::project::export_project_docx,
             commands::project::export_project_epub,
+            commands::project::export_project_pdf,
             commands::project::import_project_txt,
             commands::project::batch_export_chapters,
             // Bookshelf
@@ -142,12 +160,18 @@ pub fn run() {
             commands::llm::load_llm_config_from_db,
             commands::llm::get_token_usage,
             commands::llm::chat_completion_stream,
+            commands::llm::cancel_stream,
             // Agent
             commands::agent::list_agents,
             commands::agent::run_agent,
             commands::agent::list_agent_logs,
+            commands::agent::list_agent_prompts,
+            commands::agent::get_agent_prompt,
+            commands::agent::save_agent_prompt,
+            commands::agent::reset_agent_prompt,
             // Compiler
             commands::compiler::compile_chapter,
+            commands::compiler::run_paragraph_rewrite,
             // Ledger
             commands::ledger::list_character_states,
             commands::ledger::upsert_character_state,
@@ -182,17 +206,27 @@ pub fn run() {
             // Orchestrator
             commands::orchestrator::run_chapter_pipeline,
             commands::orchestrator::run_batch_pipeline,
+            commands::orchestrator::run_batch_pipeline_concurrent,
             // Backup
             commands::backup::create_backup,
             commands::backup::list_backups,
             commands::backup::restore_backup,
+            // Crash Recovery
+            commands::crash_recovery::emergency_save_draft,
+            commands::crash_recovery::check_crash_recovery,
+            commands::crash_recovery::restore_crash_draft,
+            commands::crash_recovery::discard_crash_recovery,
+            // Compliance Shield
+            commands::compliance::scan_chapter_compliance,
+            commands::compliance::scan_all_chapters_compliance,
+            commands::compliance::list_compliance_words,
+            commands::compliance::add_compliance_word,
+            commands::compliance::delete_compliance_word,
             // RAG
             commands::rag::search_similar_chapters,
             commands::rag::rag_semantic_recall,
             commands::rag::clear_book_index,
             commands::rag::get_index_stats,
-            commands::rag::save_rag_index,
-            commands::rag::load_rag_index,
             // Chapter merge
             commands::chapter::merge_recall_results,
             // Recall (RCL-001~004)
@@ -218,6 +252,7 @@ pub fn run() {
             commands::shared_resources::list_writing_patterns,
             commands::shared_resources::upsert_style_profile,
             commands::shared_resources::delete_style_profile,
+            commands::shared_resources::upsert_writing_pattern,
             commands::shared_resources::apply_genre_template_to_project,
             commands::shared_resources::apply_style_profile_to_project,
             commands::shared_resources::import_deai_rules_to_project,
@@ -237,6 +272,8 @@ pub fn run() {
             commands::sessions::start_writing_session,
             commands::sessions::end_writing_session,
             commands::sessions::list_writing_sessions,
+            // Window theme
+            commands::window::set_window_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

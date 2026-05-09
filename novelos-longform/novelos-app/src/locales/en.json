@@ -1,0 +1,77 @@
+{
+  "app": {
+    "title": "NovelOS Longform",
+    "loading": "Loading..."
+  },
+  "bookshelf": {
+    "title": "Bookshelf",
+    "empty": "No works yet. Start creating!",
+    "add": "New Work",
+    "open": "Open",
+    "delete": "Delete",
+    "deleteConfirm": "Are you sure you want to delete this work? This action cannot be undone."
+  },
+  "chapter": {
+    "workbench": "Chapter Workbench",
+    "draft": "Draft",
+    "finalized": "Finalized",
+    "archived": "Archived",
+    "compile": "Compile",
+    "compilePass": "Compile Passed",
+    "compileFail": "Compile Failed",
+    "startPipeline": "Start Pipeline",
+    "status": {
+      "task_ready": "Task Ready",
+      "draft_generated": "Draft Generated",
+      "compile_failed": "Compile Failed",
+      "review_pending": "Review Pending",
+      "rewrite_required": "Rewrite Required",
+      "approved": "Approved",
+      "archived": "Archived",
+      "needs_human": "Needs Human",
+      "needs_revalidate": "Needs Revalidation"
+    }
+  },
+  "compiler": {
+    "title": "Continuity Compiler",
+    "score": "Score",
+    "pass": "Pass",
+    "fail": "Fail",
+    "warning": "Warning",
+    "issues": "Issues",
+    "suggestions": "Suggestions"
+  },
+  "pipeline": {
+    "title": "Production Pipeline",
+    "running": "Running",
+    "completed": "Completed",
+    "failed": "Failed",
+    "batch": "Batch Generate",
+    "concurrency": "Concurrency"
+  },
+  "settings": {
+    "title": "Settings",
+    "llm": "LLM Configuration",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Enter API Key",
+    "model": "Model",
+    "provider": "Provider",
+    "temperature": "Temperature",
+    "maxTokens": "Max Tokens",
+    "saved": "Settings saved"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "search": "Search",
+    "noData": "No data",
+    "error": "Error",
+    "success": "Success"
+  }
+}

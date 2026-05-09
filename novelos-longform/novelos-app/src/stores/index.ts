@@ -7,6 +7,7 @@ import {
   chapterApi,
   llmApi,
   agentApi,
+  ragApi,
   type BookshelfItem,
   type ProjectInfo,
   type CanonRuleInfo,
@@ -17,6 +18,7 @@ import {
   type LlmConfig,
   type AgentRunResult,
   type AgentLogEntry,
+  type IndexStats,
 } from "../lib/api";
 
 // ─── Bookshelf Store ───
@@ -101,6 +103,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     try {
       const project = await projectApi.switch(projectId);
       set({ project, loading: false });
+      // RAG index now lives in SQLite — auto-available when project opens
     } catch (e: any) {
       set({ loading: false, error: e.toString() });
     }
@@ -241,7 +244,7 @@ interface ChapterState {
   fetchCharacters: () => Promise<void>;
   fetchTasks: (volumeId?: string) => Promise<void>;
   selectChapter: (chapterNumber: number) => Promise<void>;
-  updateDraft: (chapterNumber: number, draftText: string) => Promise<void>;
+  updateDraft: (chapterNumber: number, draftText: string, skipVersion?: boolean) => Promise<void>;
   finalize: (chapterNumber: number) => Promise<void>;
   rollback: (chapterNumber: number, versionNo: number) => Promise<void>;
   createCharacter: (name: string, roleType?: string, soulJson?: string) => Promise<void>;
@@ -293,9 +296,9 @@ export const useChapterStore = create<ChapterState>((set, get) => ({
       set({ error: e.toString() });
     }
   },
-  updateDraft: async (chapterNumber, draftText) => {
+  updateDraft: async (chapterNumber, draftText, skipVersion) => {
     try {
-      const chapter = await chapterApi.updateDraft(chapterNumber, draftText);
+      const chapter = await chapterApi.updateDraft(chapterNumber, draftText, skipVersion);
       set({ currentChapter: chapter });
       const chapters = await chapterApi.listChapters();
       set({ chapters });
@@ -308,6 +311,7 @@ export const useChapterStore = create<ChapterState>((set, get) => ({
       await chapterApi.finalize(chapterNumber);
       const chapter = await chapterApi.getChapter(chapterNumber);
       set({ currentChapter: chapter });
+      // RAG index now lives in SQLite — no manual save needed
     } catch (e: any) {
       set({ error: e.toString() });
     }
@@ -630,4 +634,73 @@ export const useCommentsStore = create<CommentsState>((set) => ({
       comments: state.comments.map((c) => (c.id === id ? { ...c, sentiment } : c)),
     })),
   clearComments: () => set({ comments: [] }),
+}));
+
+// ─── UI Store ───
+interface UiState {
+  zenMode: boolean;
+  toggleZenMode: () => void;
+  enterZenMode: () => void;
+  exitZenMode: () => void;
+}
+
+export const useUiStore = create<UiState>((set) => ({
+  zenMode: false,
+  toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
+  enterZenMode: () => set({ zenMode: true }),
+  exitZenMode: () => set({ zenMode: false }),
+}));
+
+// ─── RAG Store ───
+interface RagState {
+  stats: IndexStats | null;
+  loading: boolean;
+  error: string | null;
+  fetchStats: () => Promise<void>;
+  search: (query: string, topK?: number) => Promise<import("../lib/api").SimilarChapterResult[]>;
+  semanticRecall: (queryText: string, topK?: number, intent?: import("../lib/api").RagIntentFilter) => Promise<import("../lib/api").RagSemanticRecallItem[]>;
+  clearIndex: () => Promise<void>;
+}
+
+export const useRagStore = create<RagState>((set, get) => ({
+  stats: null,
+  loading: false,
+  error: null,
+  fetchStats: async () => {
+    try {
+      const stats = await ragApi.getIndexStats();
+      set({ stats });
+    } catch (e: any) {
+      set({ error: e.toString() });
+    }
+  },
+  search: async (query, topK) => {
+    try {
+      return await ragApi.searchSimilar(query, topK);
+    } catch (e: any) {
+      set({ error: e.toString() });
+      return [];
+    }
+  },
+  semanticRecall: async (queryText, topK, intent) => {
+    try {
+      const resp = await ragApi.semanticRecall(queryText, topK, intent);
+      return resp.results;
+    } catch (e: any) {
+      set({ error: e.toString() });
+      return [];
+    }
+  },
+  clearIndex: async () => {
+    set({ loading: true });
+    try {
+      const { project } = useProjectStore.getState();
+      if (project) await ragApi.clearBookIndex(project.id);
+      await get().fetchStats();
+      set({ loading: false });
+    } catch (e: any) {
+      set({ loading: false, error: e.toString() });
+    }
+  },
+
 }));

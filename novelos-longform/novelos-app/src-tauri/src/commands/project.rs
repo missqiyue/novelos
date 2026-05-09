@@ -117,7 +117,6 @@ pub fn switch_project(
     app: AppHandle,
     db: State<'_, DbState>,
     registry: State<'_, crate::commands::task_manager::TaskRegistry>,
-    rag: State<'_, crate::commands::rag::RagState>,
     project_id: String,
 ) -> Result<ProjectInfo, String> {
     // SHF-004: Pause tasks for the current project before switching
@@ -125,31 +124,14 @@ pub fn switch_project(
     if let Some(ref current) = current_pid {
         if current != &project_id {
             let _ = crate::commands::task_manager::pause_project_tasks_inner(&registry, current);
-
-            // Save RAG index for the current project before switching
-            let data_dir = app.path().app_data_dir().unwrap_or_default();
-            let rag_path = data_dir.join("novelos").join("books").join(current).join("rag_index.json");
-            {
-                let store = rag.store.lock().map_err(|e| e.to_string())?;
-                let _ = store.save_to_file(&rag_path);
-            }
+            // RAG data is now persisted in SQLite (book.db), no file save needed
         }
     }
 
     db.open_project_db(&app, &project_id)
         .map_err(|e| format!("Failed to open project: {}", e))?;
 
-    // Load RAG index for the new project (or initialize empty)
-    {
-        let mut store = rag.store.lock().map_err(|e| e.to_string())?;
-        store.chapter_index.clear();
-        store.project_id = project_id.clone();
-        let data_dir = app.path().app_data_dir().unwrap_or_default();
-        let rag_path = data_dir.join("novelos").join("books").join(&project_id).join("rag_index.json");
-        if let Some(loaded) = crate::rag::BookVectorStore::load_from_file(&rag_path) {
-            *store = loaded;
-        }
-    }
+    // RAG data lives in the project's book.db — automatically available after open_project_db
 
     // Update last_opened_at in bookshelf
     {
@@ -168,17 +150,9 @@ pub fn switch_project(
 
 #[tauri::command]
 pub fn close_project(
-    app: AppHandle,
     db: State<'_, DbState>,
-    rag: State<'_, crate::commands::rag::RagState>,
 ) -> Result<(), String> {
-    // Save RAG index before closing
-    if let Some(project_id) = db.current_project_id() {
-        let data_dir = app.path().app_data_dir().unwrap_or_default();
-        let rag_path = data_dir.join("novelos").join("books").join(&project_id).join("rag_index.json");
-        let store = rag.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.save_to_file(&rag_path);
-    }
+    // RAG data is now persisted in SQLite (book.db), no file save needed
     db.close_project_db();
     Ok(())
 }
@@ -885,6 +859,144 @@ pub fn import_project_txt(
         total_words,
         chapter_titles,
     })
+}
+
+// --- PDF Export ---
+
+#[tauri::command]
+pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: String) -> Result<String, String> {
+    use genpdf_chinese::{Document, Margins, Size, elements, fonts, style, Element as _};
+
+    let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
+    let db_path = books_dir.join(&project_id).join("book.db");
+
+    if !db_path.exists() {
+        return Err("Project database not found".to_string());
+    }
+
+    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    let title: String = conn
+        .query_row("SELECT title FROM projects LIMIT 1", [], |r| r.get(0))
+        .unwrap_or_else(|_| "未命名作品".to_string());
+
+    let logline: Option<String> = conn
+        .query_row("SELECT logline FROM projects LIMIT 1", [], |r| r.get(0))
+        .ok();
+
+    // Load CJK font — try known system paths then app data
+    let font_paths: &[&str] = &[
+        // macOS
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        // Linux
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        // Windows
+        "C:\\Windows\\Fonts\\msyh.ttc",
+    ];
+
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let fonts_dir = app_data.join("novelos").join("fonts");
+    let custom_font = fonts_dir.join("NotoSansSC-Regular.ttf");
+
+    let font_data = if custom_font.exists() {
+        std::fs::read(&custom_font).map_err(|e| format!("Failed to read font: {}", e))?
+    } else {
+        let mut found = None;
+        for path in font_paths {
+            if std::path::Path::new(path).exists() {
+                match std::fs::read(path) {
+                    Ok(data) => { found = Some(data); break; }
+                    Err(_) => continue,
+                }
+            }
+        }
+        found.ok_or_else(|| {
+            "PDF导出需要中文字体。请下载 NotoSansSC-Regular.ttf 放入: ".to_string() + custom_font.to_str().unwrap_or("")
+        })?
+    };
+
+    let font_family = fonts::FontFamily {
+        regular: fonts::FontData::new(font_data.clone(), None).map_err(|e| format!("Font load error: {}", e))?,
+        bold: fonts::FontData::new(font_data.clone(), None).map_err(|e| format!("Font load error: {}", e))?,
+        italic: fonts::FontData::new(font_data.clone(), None).map_err(|e| format!("Font load error: {}", e))?,
+        bold_italic: fonts::FontData::new(font_data, None).map_err(|e| format!("Font load error: {}", e))?,
+    };
+
+    let mut doc = Document::new(font_family);
+    doc.set_title(&title);
+    doc.set_paper_size(Size::new(210.0f32, 297.0f32)); // A4
+
+    let mut decorator = genpdf_chinese::SimplePageDecorator::new();
+    decorator.set_margins(Margins::trbl(25.0f32, 20.0f32, 25.0f32, 20.0f32));
+    doc.set_page_decorator(decorator);
+
+    // Title page
+    doc.push(
+        elements::Paragraph::new(&title)
+            .styled(style::Style::new().with_font_size(24).bold())
+    );
+
+    if let Some(ref l) = logline {
+        if !l.is_empty() {
+            doc.push(
+                elements::Paragraph::new(l)
+                    .styled(style::Style::new().with_font_size(12).italic())
+            );
+        }
+    }
+
+    doc.push(elements::Paragraph::new(""));
+    doc.push(
+        elements::Paragraph::new(format!("导出日期: {}", chrono::Utc::now().format("%Y-%m-%d")))
+            .styled(style::Style::new().with_font_size(10))
+    );
+
+    // Chapters
+    let mut stmt = conn
+        .prepare("SELECT chapter_number, title, final_text, draft_text FROM chapters ORDER BY chapter_number")
+        .map_err(|e| e.to_string())?;
+
+    let chapters: Vec<(i64, Option<String>, Option<String>, Option<String>)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for (num, chap_title, final_text, draft_text) in &chapters {
+        let text = final_text.as_deref().or(draft_text.as_deref()).unwrap_or("");
+        if text.is_empty() { continue; }
+
+        let heading = format!("第{}章 {}", num, chap_title.as_deref().unwrap_or(""));
+        doc.push(
+            elements::Paragraph::new(&heading)
+                .styled(style::Style::new().with_font_size(16).bold())
+        );
+
+        for para in text.split("\n\n") {
+            let trimmed = para.trim();
+            if !trimmed.is_empty() {
+                doc.push(
+                    elements::Paragraph::new(trimmed)
+                        .styled(style::Style::new().with_font_size(12))
+                );
+            }
+        }
+
+        doc.push(elements::PageBreak::new());
+    }
+
+    // Write to file
+    let export_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("exports");
+    std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
+
+    let safe_title = title.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127, "_");
+    let filename = format!("{}_{}.pdf", safe_title, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let export_path = export_dir.join(&filename);
+
+    doc.render_to_file(&export_path).map_err(|e| format!("PDF render error: {}", e))?;
+
+    Ok(export_path.to_string_lossy().to_string())
 }
 
 // --- Batch Export ---

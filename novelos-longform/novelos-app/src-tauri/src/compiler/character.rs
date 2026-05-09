@@ -1,4 +1,4 @@
-use super::{CompileContext, CompileIssue, CompilePass};
+use super::{CompileContext, CompileIssue, CompilePass, find_paragraph_index};
 
 pub struct CharacterChecker;
 
@@ -20,6 +20,7 @@ impl CompilePass for CharacterChecker {
                         message: format!("角色 {} 缺少SOUL数据", ch.name),
                         detail: Some("未设置SOUL的角色无法进行口吻一致性检查".to_string()),
                         location: Some(ch.name.clone()),
+                        paragraph_index: find_paragraph_index(ctx.draft_text, &ch.name),
                     });
                     continue;
                 }
@@ -143,7 +144,6 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
     let mut issues = Vec::new();
 
     // 1. Check for terseness mismatch
-    // If tone/pattern suggests brevity (简洁/简短/少), flag overly long dialogue
     let is_terse = profile.tone.contains("简洁")
         || profile.tone.contains("简短")
         || profile.tone.contains("少")
@@ -153,8 +153,8 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
     if is_terse {
         for line in &dialogues {
             let char_count = line.chars().count();
-            // Terse characters shouldn't deliver monologues > 100 chars
             if char_count > 100 {
+                let para_idx = find_paragraph_index(draft_text, line);
                 issues.push(CompileIssue {
                     checker: "CharacterChecker".to_string(),
                     severity: "warning".to_string(),
@@ -164,13 +164,13 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
                         truncate_str(line, 80)
                     )),
                     location: Some(name.to_string()),
+                    paragraph_index: para_idx,
                 });
             }
         }
     }
 
     // 2. Check for verbose mismatch
-    // If tone suggests verbosity (啰嗦/多/详细), flag very short dialogue
     let is_verbose = profile.tone.contains("啰嗦")
         || profile.tone.contains("多")
         || profile.tone.contains("详细")
@@ -180,8 +180,8 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
     if is_verbose {
         for line in &dialogues {
             let char_count = line.chars().count();
-            // Verbose characters shouldn't give one-word answers
             if char_count > 0 && char_count < 5 {
+                let para_idx = find_paragraph_index(draft_text, line);
                 issues.push(CompileIssue {
                     checker: "CharacterChecker".to_string(),
                     severity: "info".to_string(),
@@ -191,14 +191,11 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
                         char_count
                     )),
                     location: Some(name.to_string()),
+                    paragraph_index: para_idx,
                 });
             }
         }
     }
-
-    // 3. Check for catchphrase absence — if a catchphrase is defined but never used
-    // This is informational only (characters don't need to use catchphrases every chapter)
-    // Skip this check to avoid noise
 
     // 4. Check for taboo words / patterns if habits define "不说" or negative patterns
     let forbidden_patterns: Vec<&str> = profile.habits.iter()
@@ -214,6 +211,7 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
     for line in &dialogues {
         for forbidden in &forbidden_patterns {
             if !forbidden.is_empty() && line.contains(forbidden) {
+                let para_idx = find_paragraph_index(draft_text, line);
                 issues.push(CompileIssue {
                     checker: "CharacterChecker".to_string(),
                     severity: "warning".to_string(),
@@ -223,6 +221,7 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
                         truncate_str(line, 80)
                     )),
                     location: Some(name.to_string()),
+                    paragraph_index: para_idx,
                 });
             }
         }

@@ -20,6 +20,7 @@ impl CompilePass for ForeshadowChecker {
                             message: format!("伏笔超期未回收: {} (已埋设{}章)", fs.title.as_deref().unwrap_or("未命名"), chapters_since),
                             detail: Some("建议在近期章节中回收此伏笔，或评估是否可以废弃".to_string()),
                             location: None,
+                            paragraph_index: None,
                         });
                     }
                 }

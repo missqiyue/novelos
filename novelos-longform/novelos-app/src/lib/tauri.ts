@@ -40,6 +40,7 @@ export const projectApi = {
   exportMd: (projectId: string) => invoke<string>("export_project_md", { projectId }),
   exportDocx: (projectId: string) => invoke<string>("export_project_docx", { projectId }),
   exportEpub: (projectId: string) => invoke<string>("export_project_epub", { projectId }),
+  exportPdf: (projectId: string) => invoke<string>("export_project_pdf", { projectId }),
   importTxt: (filePath: string) => invoke<ImportResult>("import_project_txt", { filePath }),
   createSample: () => invoke<SeedResult>("create_sample_project"),
 };
@@ -359,8 +360,8 @@ export const chapterApi = {
   getChapter: (chapterNumber: number) => invoke<ChapterInfo>("get_chapter", { chapterNumber }),
   createChapter: (chapterNumber: number, title?: string, taskId?: string) =>
     invoke<ChapterInfo>("create_chapter", { chapterNumber, title, taskId }),
-  updateDraft: (chapterNumber: number, draftText: string) =>
-    invoke<ChapterInfo>("update_chapter_draft", { chapterNumber, draftText }),
+  updateDraft: (chapterNumber: number, draftText: string, skipVersion?: boolean) =>
+    invoke<ChapterInfo>("update_chapter_draft", { chapterNumber, draftText, skipVersion }),
   finalize: (chapterNumber: number) => invoke<ChapterInfo>("finalize_chapter", { chapterNumber }),
   listVersions: (chapterNumber: number) =>
     invoke<ChapterVersionInfo[]>("list_chapter_versions", { chapterNumber }),
@@ -408,6 +409,7 @@ export interface CompileIssue {
   message: string;
   detail: string | null;
   location: string | null;
+  paragraph_index: number | null;
 }
 
 export interface CompileStats {
@@ -432,10 +434,24 @@ export interface CompileResult {
   suggestions: string[];
 }
 
+export interface ParagraphRewriteResult {
+  chapter_number: number;
+  paragraph_index: number;
+  original_paragraph: string;
+  revised_paragraph: string;
+  compile_score: number | null;
+}
+
 export const compilerApi = {
   compile: (chapterNumber: number, draftText: string) =>
     invoke<CompileResult>("compile_chapter", {
       input: { chapter_number: chapterNumber, draft_text: draftText },
+    }),
+  rewriteParagraph: (chapterNumber: number, paragraphIndex: number, requirements: string) =>
+    invoke<ParagraphRewriteResult>("run_paragraph_rewrite", {
+      chapterNumber,
+      paragraphIndex,
+      requirements,
     }),
 };
 
@@ -768,6 +784,17 @@ export interface WritingPatternInfo {
   created_at: string;
 }
 
+export interface UpsertWritingPatternInput {
+  id?: string;
+  source_type: string;
+  source_ref?: string | null;
+  pattern_name: string;
+  genre_compat?: string | null;
+  description: string;
+  usage_guide?: string | null;
+  sample_text?: string | null;
+}
+
 export interface GlobalResourcesOverview {
   genre_templates: number;
   style_profiles: number;
@@ -896,6 +923,10 @@ export interface LlmConfig {
   model: string;
   max_tokens: number;
   temperature: number;
+  /** Embedding provider: "ollama" (local), "openai", or empty (auto-detect) */
+  embedding_provider: string;
+  /** Embedding model name. Defaults: "nomic-embed-text" for Ollama, "text-embedding-3-small" for OpenAI */
+  embedding_model: string;
 }
 
 export interface ChatMessage {
@@ -933,6 +964,8 @@ export const llmApi = {
     model?: string,
     maxTokens?: number,
     temperature?: number,
+    embeddingProvider?: string,
+    embeddingModel?: string,
   ) =>
     invoke<LlmConfig>("update_llm_config", {
       input: {
@@ -942,6 +975,8 @@ export const llmApi = {
         model,
         max_tokens: maxTokens,
         temperature,
+        embedding_provider: embeddingProvider,
+        embedding_model: embeddingModel,
       },
     }),
   chat: (messages: ChatMessage[]) => invoke<ChatResponse>("chat_completion", { messages }),
@@ -1009,6 +1044,22 @@ export interface PipelineStep {
   duration_ms: number;
 }
 
+export interface ReviewConflict {
+  topic: string;
+  expert_a: string;
+  position_a: string;
+  expert_b: string;
+  position_b: string;
+  severity: string; // "low", "medium", "high"
+  user_resolution: string | null; // "favor_a", "favor_b", "ignore", null
+}
+
+export interface ConflictMatrix {
+  expert_scores: [string, number][];
+  conflicts: ReviewConflict[];
+  score_spread: number;
+}
+
 export interface PipelineResult {
   steps: PipelineStep[];
   chapter_status: string;
@@ -1016,6 +1067,7 @@ export interface PipelineResult {
   review_verdict: string | null;
   review_score: number | null;
   total_duration_ms: number;
+  conflict_matrix: ConflictMatrix | null;
 }
 
 export const orchestratorApi = {
@@ -1041,6 +1093,8 @@ export const sharedResourcesApi = {
   listStyleProfiles: () => invoke<StyleProfileInfo[]>("list_style_profiles"),
   listWritingPatterns: (sourceType?: string) =>
     invoke<WritingPatternInfo[]>("list_writing_patterns", { sourceType }),
+  upsertWritingPattern: (input: UpsertWritingPatternInput) =>
+    invoke<WritingPatternInfo>("upsert_writing_pattern", { input }),
   applyGenreTemplate: (templateId: string) =>
     invoke<void>("apply_genre_template_to_project", { templateId }),
   applyStyleProfile: (profileId: string) =>
@@ -1116,4 +1170,117 @@ export const writingSessionApi = {
     invoke<WritingSessionInfo>("end_writing_session", { input }),
   listSessions: (chapter_id?: string) =>
     invoke<WritingSessionInfo[]>("list_writing_sessions", { chapter_id }),
+};
+
+// ─── Crash Recovery ───
+export interface CrashRecoveryInfo {
+  chapter_number: number;
+  saved_at: string;
+  draft_length: number;
+}
+
+export const crashRecoveryApi = {
+  emergencySave: (chapterNumber: number, draftText: string) =>
+    invoke<void>("emergency_save_draft", { chapterNumber, draftText }),
+  check: () => invoke<CrashRecoveryInfo[]>("check_crash_recovery"),
+  restore: (chapterNumber: number) =>
+    invoke<string>("restore_crash_draft", { chapterNumber }),
+  discard: (chapterNumber: number) =>
+    invoke<void>("discard_crash_recovery", { chapterNumber }),
+};
+
+// ─── Compliance Shield ───
+export interface ComplianceHit {
+  word: string;
+  category: string;
+  risk_level: string;
+  suggestion: string | null;
+  positions: number[];
+}
+
+export interface ComplianceScanResult {
+  chapter_number: number;
+  total_hits: number;
+  high_risk_count: number;
+  medium_risk_count: number;
+  low_risk_count: number;
+  hits: ComplianceHit[];
+}
+
+export interface ComplianceWordEntry {
+  id: string;
+  word: string;
+  category: string;
+  risk_level: string;
+  suggestion: string | null;
+  is_builtin: boolean;
+}
+
+export const complianceApi = {
+  scanChapter: (chapterNumber: number) =>
+    invoke<ComplianceScanResult>("scan_chapter_compliance", { chapterNumber }),
+  scanAll: () => invoke<ComplianceScanResult[]>("scan_all_chapters_compliance"),
+  listWords: () => invoke<ComplianceWordEntry[]>("list_compliance_words"),
+  addWord: (word: string, category: string, riskLevel: string, suggestion?: string) =>
+    invoke<ComplianceWordEntry>("add_compliance_word", {
+      word,
+      category,
+      riskLevel,
+      suggestion: suggestion || null,
+    }),
+  deleteWord: (id: string) => invoke<void>("delete_compliance_word", { id }),
+};
+
+// ─── RAG ───
+export interface SimilarChapterResult {
+  chapter_number: number;
+  similarity: number;
+  snippet: string;
+}
+
+export interface RagSemanticRecallItem {
+  chapter_number: number;
+  chunk_text: string;
+  similarity: number;
+}
+
+export interface RagSemanticRecallResponse {
+  results: RagSemanticRecallItem[];
+  message: string | null;
+}
+
+export interface RagIntentFilter {
+  character_names?: string[];
+  pov_character?: string;
+  active_foreshadows?: string[];
+  chapter_range?: [number, number];
+}
+
+export interface IndexStats {
+  total_chapters_indexed: number;
+  total_chunks: number;
+  total_vectors: number;
+}
+
+export const ragApi = {
+  searchSimilar: (query: string, topK?: number) =>
+    invoke<SimilarChapterResult[]>("search_similar_chapters", {
+      input: { query, top_k: topK || 5 },
+    }),
+  semanticRecall: (queryText: string, topK?: number, intent?: RagIntentFilter) =>
+    invoke<RagSemanticRecallResponse>("rag_semantic_recall", {
+      queryText,
+      topK: topK || 5,
+      intent: intent || null,
+    }),
+  clearBookIndex: (projectId: string) =>
+    invoke<boolean>("clear_book_index", { projectId }),
+  getIndexStats: () => invoke<IndexStats>("get_index_stats"),
+
+};
+
+// ─── Window Theme ───
+export const windowApi = {
+  setWindowTheme: (theme: string) =>
+    invoke<void>("set_window_theme", { theme }),
 };

@@ -1,4 +1,5 @@
 import initSqlJs, { Database, SqlJsStatic } from "sql.js";
+import wasmUrl from "sql.js/dist/sql-wasm-browser.wasm?url";
 import { globalMigrations, projectMigrations, type Migration } from "./migrations";
 
 const IDB_NAME = "novelos-db";
@@ -11,7 +12,7 @@ let sqlJsStatic: SqlJsStatic | null = null;
 async function getSqlJs(): Promise<SqlJsStatic> {
   if (!sqlJsStatic) {
     sqlJsStatic = await initSqlJs({
-      locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+      locateFile: () => wasmUrl,
     });
   }
   return sqlJsStatic;
@@ -83,14 +84,21 @@ function runMigrations(db: Database, migrations: Migration[]): void {
       const statements = migration.sql
         .split(";")
         .map((s) => s.trim())
-        .filter((s) => s.length > 0 && !s.startsWith("--"));
+        .filter((s) => s.length > 0 && !s.startsWith("--"))
+        // Skip _migrations table management — handled by runMigrations itself
+        .filter((s) => !s.match(/^(CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?_migrations|INSERT\s+INTO\s+_migrations)/i));
 
       for (const stmt of statements) {
         db.run(stmt);
       }
       db.run("COMMIT");
+      db.run("INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, ?)", [
+        migration.version,
+        migration.name,
+        new Date().toISOString(),
+      ]);
     } catch (err) {
-      db.run("ROLLBACK");
+      try { db.run("ROLLBACK"); } catch { /* no active transaction */ }
       throw new Error(`Migration V${migration.version} (${migration.name}) failed: ${err}`);
     }
   }

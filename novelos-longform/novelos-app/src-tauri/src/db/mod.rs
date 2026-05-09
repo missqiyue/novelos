@@ -5,13 +5,39 @@ pub mod transactions;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::Manager;
 
 pub struct DbState {
-    pub global: Mutex<Connection>,
-    pub project: Mutex<Option<Connection>>,
-    pub project_id: Mutex<Option<String>>,
+    pub global: Arc<Mutex<Connection>>,
+    pub project: Arc<Mutex<Option<Connection>>>,
+    pub project_id: Arc<Mutex<Option<String>>>,
+}
+
+/// Helper to recover from a poisoned Mutex by recreating the inner value.
+/// This should only be used when the poisoned state is recoverable
+/// (i.e. the inner value can be safely reconstructed).
+fn recover_or_lock<T>(mutex: &Mutex<T>, recover: impl FnOnce() -> T) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::error!("Mutex poisoned — recovering by replacing with fresh value");
+            // Replace the poisoned mutex contents with a fresh value
+            let mut guard = poisoned.into_inner();
+            *guard = recover();
+            guard
+        }
+    }
+}
+
+impl Clone for DbState {
+    fn clone(&self) -> Self {
+        Self {
+            global: Arc::clone(&self.global),
+            project: Arc::clone(&self.project),
+            project_id: Arc::clone(&self.project_id),
+        }
+    }
 }
 
 impl DbState {
@@ -30,9 +56,9 @@ impl DbState {
         std::fs::create_dir_all(&books_dir)?;
 
         Ok(Self {
-            global: Mutex::new(global_conn),
-            project: Mutex::new(None),
-            project_id: Mutex::new(None),
+            global: Arc::new(Mutex::new(global_conn)),
+            project: Arc::new(Mutex::new(None)),
+            project_id: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -59,5 +85,45 @@ impl DbState {
 
     pub fn current_project_id(&self) -> Option<String> {
         self.project_id.lock().unwrap().clone()
+    }
+
+    /// Safely lock the project database connection.
+    /// Returns an error if the project is not open.
+    /// On poisoned mutex, clears and returns an error rather than
+    /// using a potentially inconsistent connection.
+    pub fn lock_project(&self) -> Result<MutexGuard<'_, Option<Connection>>, String> {
+        match self.project.lock() {
+            Ok(guard) => Ok(guard),
+            Err(poisoned) => {
+                log::error!("Project DB mutex poisoned — clearing connection");
+                let mut guard = poisoned.into_inner();
+                *guard = None;
+                Err("Database connection was poisoned and has been reset. Please re-open the project.".to_string())
+            }
+        }
+    }
+
+    /// Safely lock the global database connection.
+    /// On poisoned mutex, attempts to re-open the connection.
+    pub fn lock_global(&self, app: &tauri::AppHandle) -> Result<MutexGuard<'_, Connection>, String> {
+        match self.global.lock() {
+            Ok(guard) => Ok(guard),
+            Err(poisoned) => {
+                log::error!("Global DB mutex poisoned — attempting to re-open");
+                let mut guard = poisoned.into_inner();
+                // Try to re-open the global database
+                let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("global");
+                let db_path = data_dir.join("global.db");
+                match Connection::open(&db_path) {
+                    Ok(conn) => {
+                        *guard = conn;
+                        Ok(guard)
+                    }
+                    Err(e) => {
+                        Err(format!("Failed to re-open global database: {}", e))
+                    }
+                }
+            }
+        }
     }
 }

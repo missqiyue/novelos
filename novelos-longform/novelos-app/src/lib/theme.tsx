@@ -12,6 +12,24 @@ const ThemeContext = createContext<ThemeContextType>({
   toggle: () => {},
 });
 
+/** Update the native window appearance to match the theme.
+ *  - setTheme() tells macOS to use Dark/Light Appearance for this window
+ *    (this controls the title bar color and text color automatically).
+ *  - setBackgroundColor() sets the window background behind the webview.
+ */
+function applyWindowTheme(theme: Theme) {
+  import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+    const win = getCurrentWindow();
+    // Tell macOS to use Dark or Light Appearance for this window
+    win.setTheme(theme).catch(() => {});
+    // Set window background color: [R, G, B, A] tuple
+    const color: [number, number, number, number] = theme === "dark"
+      ? [30, 30, 30, 255]
+      : [255, 255, 255, 255];
+    win.setBackgroundColor(color).catch(() => {});
+  }).catch(() => {});
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -33,6 +51,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.setItem("novelos-theme", theme);
     } catch {}
+    // Sync native window appearance (title bar color, system controls)
+    applyWindowTheme(theme);
   }, [theme]);
 
   const toggle = useCallback(() => {

@@ -4,7 +4,7 @@ import { NotificationBell } from "./NotificationBell";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import { useTheme } from "../../lib/theme";
 import { useGlobalShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { useProjectStore, useBookshelfStore } from "../../stores";
+import { useProjectStore, useBookshelfStore, useUiStore } from "../../stores";
 import { useEffect, useState, useRef } from "react";
 import {
   BookOpen,
@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Library,
   Shield,
+  ShieldAlert,
   PanelLeftClose,
   PanelLeft,
   Sun,
@@ -32,40 +33,11 @@ const navItems = [
   { to: "characters", label: "角色", icon: Users },
   { to: "ledger", label: "账本", icon: Library },
   { to: "retcon-approval", label: "修史审批", icon: Shield },
+  { to: "compliance-shield", label: "合规盾", icon: ShieldAlert },
   { to: "settings", label: "设置", icon: Settings },
 ];
 
-interface RecentVisit {
-  path: string;
-  label: string;
-  navTo: string;
-  visitedAt: number;
-}
 
-const RECENT_VISITS_KEY = "novelos_recent_visits";
-const MAX_RECENT = 3;
-
-function getRecentVisits(): RecentVisit[] {
-  try {
-    const raw = localStorage.getItem(RECENT_VISITS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function recordVisit(visit: RecentVisit) {
-  try {
-    const visits = getRecentVisits();
-    // Remove duplicate of same path
-    const filtered = visits.filter((v) => v.path !== visit.path);
-    filtered.unshift(visit);
-    // Keep only MAX_RECENT
-    localStorage.setItem(RECENT_VISITS_KEY, JSON.stringify(filtered.slice(0, MAX_RECENT)));
-  } catch {
-    /* ignore */
-  }
-}
 
 export function AppShell() {
   const { projectId } = useParams();
@@ -73,9 +45,9 @@ export function AppShell() {
   const location = useLocation();
   const { project, fetch, switchProject } = useProjectStore();
   const { items, fetch: fetchBookshelf, openProject } = useBookshelfStore();
+  const { zenMode } = useUiStore();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [recentVisits, setRecentVisits] = useState<RecentVisit[]>(getRecentVisits());
   const switcherRef = useRef<HTMLDivElement>(null);
 
   const { theme, toggle: toggleTheme } = useTheme();
@@ -97,27 +69,7 @@ export function AppShell() {
     return () => document.removeEventListener("mousedown", handler);
   }, [switcherOpen]);
 
-  // Track page visits for "recent visits" sidebar section
-  useEffect(() => {
-    const segments = location.pathname.split("/").filter(Boolean);
-    // Path format: /project/:projectId/:page
-    if (segments.length < 3) return;
-    const pageSegment = segments[2];
-    // Map segment to nav label
-    const match = navItems.find((item) => {
-      const itemSeg = item.to.split("/")[0];
-      return pageSegment === itemSeg;
-    });
-    if (!match) return;
-    const visit: RecentVisit = {
-      path: `/project/${projectId}/${match.to}`,
-      label: match.label,
-      navTo: match.to,
-      visitedAt: Date.now(),
-    };
-    recordVisit(visit);
-    setRecentVisits(getRecentVisits());
-  }, [location.pathname, projectId]);
+
 
   const handleSwitch = async (id: string) => {
     setSwitcherOpen(false);
@@ -125,6 +77,18 @@ export function AppShell() {
     await openProject(id);
     navigate(`/project/${id}/dashboard`);
   };
+
+  if (zenMode) {
+    return (
+      <div className="h-screen bg-gray-50">
+        <main className="h-full">
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -193,28 +157,7 @@ export function AppShell() {
           )}
         </div>
 
-        {/* Recent visits */}
-        {!sidebarCollapsed && recentVisits.length > 0 && (
-          <div className="px-2 pt-2 pb-1 border-b border-gray-100">
-            <p className="px-3 py-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-              最近访问
-            </p>
-            {recentVisits.map((visit) => {
-              const match = navItems.find((n) => n.to === visit.navTo);
-              const Icon = match?.icon || FileText;
-              return (
-                <button
-                  key={visit.path}
-                  onClick={() => navigate(visit.path)}
-                  className="w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
-                >
-                  <Icon size={14} />
-                  <span className="truncate">{visit.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+
 
         <nav className="flex-1 p-2">
           {navItems.map(({ to, label, icon: Icon }) => (
@@ -253,7 +196,7 @@ export function AppShell() {
           <GlobalSearch />
           <button
             onClick={toggleTheme}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600"
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
             title={theme === "dark" ? "切换亮色主题" : "切换深色主题"}
           >
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}

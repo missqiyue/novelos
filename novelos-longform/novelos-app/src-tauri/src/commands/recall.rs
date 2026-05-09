@@ -1,6 +1,7 @@
 use crate::commands::llm::LlmState;
-use crate::commands::rag::RagState;
+// RagState removed — RAG now uses SQLite via DbState
 use crate::db::DbState;
+use crate::rag::RagIntentFilter;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -54,6 +55,7 @@ pub struct RecallLayerTexts {
     pub canon_rules: String,
     pub fts: String,
     pub rag: String,
+    pub writing_patterns: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,10 +89,38 @@ impl Default for RecallLayers {
 #[derive(Debug, Deserialize)]
 pub struct RecallInput {
     pub chapter_number: i64,
+    /// Character IDs to filter — only include character states for these characters.
     pub character_ids: Option<Vec<String>>,
+    /// Character names for RAG intent boosting.
+    pub character_names: Option<Vec<String>>,
+    /// POV character name for RAG intent boosting.
+    pub pov_character: Option<String>,
+    /// Active foreshadow titles for RAG intent boosting.
+    pub active_foreshadows: Option<Vec<String>>,
+    /// Chapter range [min, max] for RAG filtering.
+    pub chapter_range: Option<(i64, i64)>,
     pub fts_query: Option<String>,
     pub rag_query: Option<String>,
     pub max_tokens: Option<usize>,
+}
+
+impl RecallInput {
+    /// Build a RagIntentFilter from the recall input's intent fields.
+    pub fn to_rag_intent(&self) -> Option<RagIntentFilter> {
+        let has_intent = self.character_names.is_some()
+            || self.pov_character.is_some()
+            || self.active_foreshadows.is_some()
+            || self.chapter_range.is_some();
+        if !has_intent {
+            return None;
+        }
+        Some(RagIntentFilter {
+            character_names: self.character_names.clone(),
+            pov_character: self.pov_character.clone(),
+            active_foreshadows: self.active_foreshadows.clone(),
+            chapter_range: self.chapter_range,
+        })
+    }
 }
 
 /// RCL-001 + RCL-002: Comprehensive recall with priority-based assembly and token budget control.
@@ -152,7 +182,6 @@ pub fn assemble_recall_context(
 pub async fn full_recall_context(
     db: State<'_, DbState>,
     llm: State<'_, LlmState>,
-    rag: State<'_, RagState>,
     input: RecallInput,
 ) -> Result<AssembledRecallContext, String> {
     let budget = input.max_tokens.unwrap_or(MAX_TOKEN_BUDGET);
@@ -191,9 +220,10 @@ pub async fn full_recall_context(
         assemble_with_budget(items, budget_chars)?
     };
 
-    // Step 2: RAG semantic recall (async) — RCL-004
+    // Step 2: RAG semantic recall (async) — RCL-004 with intent-driven filtering
     if let Some(ref rag_query) = input.rag_query {
-        let rag_text = fetch_rag_results(&llm, &rag, rag_query).await;
+        let intent = input.to_rag_intent();
+        let rag_text = fetch_rag_results_with_intent(&db, &llm, rag_query, intent.as_ref()).await;
         if !rag_text.is_empty() {
             let remaining_chars = budget_chars.saturating_sub(result.context_text.chars().count());
             if remaining_chars > 200 {
@@ -268,30 +298,60 @@ pub fn fetch_hard_rules(conn: &rusqlite::Connection) -> String {
     text
 }
 
-pub fn fetch_character_states(conn: &rusqlite::Connection, chapter_number: i64, _character_ids: Option<&[String]>) -> String {
-    let sql = "SELECT c.name, cs.level_state, cs.emotion_state, cs.goal_state, cs.physical_state, cs.location_id \
-               FROM characters c \
-               LEFT JOIN character_states cs ON cs.character_id = c.id AND cs.chapter_from <= ?1 AND (cs.chapter_to IS NULL OR cs.chapter_to >= ?1) \
-               WHERE c.status = 'active' \
-               ORDER BY c.name LIMIT 20";
+pub fn fetch_character_states(conn: &rusqlite::Connection, chapter_number: i64, character_ids: Option<&[String]>) -> String {
+    // If specific character IDs are provided, filter to only those characters
+    let sql = if character_ids.map_or(false, |ids| !ids.is_empty()) {
+        "SELECT c.name, cs.level_state, cs.emotion_state, cs.goal_state, cs.physical_state, cs.location_id \
+         FROM characters c \
+         LEFT JOIN character_states cs ON cs.character_id = c.id AND cs.chapter_from <= ?1 AND (cs.chapter_to IS NULL OR cs.chapter_to >= ?1) \
+         WHERE c.status = 'active' AND c.id IN (SELECT value FROM json_each(?2)) \
+         ORDER BY c.name LIMIT 20"
+    } else {
+        "SELECT c.name, cs.level_state, cs.emotion_state, cs.goal_state, cs.physical_state, cs.location_id \
+         FROM characters c \
+         LEFT JOIN character_states cs ON cs.character_id = c.id AND cs.chapter_from <= ?1 AND (cs.chapter_to IS NULL OR cs.chapter_to >= ?1) \
+         WHERE c.status = 'active' \
+         ORDER BY c.name LIMIT 20"
+    };
 
     let mut stmt = match conn.prepare(sql) {
         Ok(s) => s,
         Err(_) => return String::new(),
     };
 
-    let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = match stmt.query_map([chapter_number], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, Option<String>>(4)?,
-            row.get::<_, Option<String>>(5)?,
-        ))
-    }) {
-        Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
-        Err(_) => return String::new(),
+    let ids_json = character_ids.map(|ids| {
+        let items: Vec<String> = ids.iter().map(|id| format!("\"{}\"", id.replace('"', "\\\""))).collect();
+        format!("[{}]", items.join(","))
+    }).unwrap_or_default();
+
+    let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = if character_ids.map_or(false, |ids| !ids.is_empty()) {
+        match stmt.query_map(rusqlite::params![chapter_number, ids_json], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        }) {
+            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
+            Err(_) => return String::new(),
+        }
+    } else {
+        match stmt.query_map([chapter_number], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        }) {
+            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
+            Err(_) => return String::new(),
+        }
     };
 
     if rows.is_empty() {
@@ -478,14 +538,25 @@ fn fetch_fts_results(conn: &rusqlite::Connection, query: &str) -> String {
     text
 }
 
-/// RCL-004: RAG semantic recall (async wrapper).
-async fn fetch_rag_results(llm: &LlmState, rag: &RagState, query: &str) -> String {
+/// RCL-004: RAG semantic recall (async wrapper) with intent-driven filtering.
+/// Uses SQLite-backed RAG via DbState instead of in-memory RagState.
+async fn fetch_rag_results_with_intent(
+    db: &DbState,
+    llm: &LlmState,
+    query: &str,
+    intent: Option<&RagIntentFilter>,
+) -> String {
+    // Quick emptiness check
     {
-        let store = match rag.store.lock() {
-            Ok(s) => s,
+        let guard = match db.project.lock() {
+            Ok(g) => g,
             Err(_) => return String::new(),
         };
-        if store.chapter_index.store.is_empty() {
+        let conn = match guard.as_ref() {
+            Some(c) => c,
+            None => return String::new(),
+        };
+        if crate::rag::is_rag_empty(conn).unwrap_or(true) {
             return String::new();
         }
     }
@@ -503,11 +574,18 @@ async fn fetch_rag_results(llm: &LlmState, rag: &RagState, query: &str) -> Strin
         Err(_) => return String::new(),
     };
 
-    let store = match rag.store.lock() {
-        Ok(s) => s,
+    let guard = match db.project.lock() {
+        Ok(g) => g,
         Err(_) => return String::new(),
     };
-    let raw_results = store.chapter_index.search_similar(&embedding, 5);
+    let conn = match guard.as_ref() {
+        Some(c) => c,
+        None => return String::new(),
+    };
+    let raw_results = match crate::rag::search_similar_sqlite(conn, &embedding, 5, intent) {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
 
     if raw_results.is_empty() {
         return String::new();
@@ -824,6 +902,55 @@ pub fn fetch_de_ai_rules_summary(conn: &rusqlite::Connection) -> String {
     for (category, name, desc) in &rows {
         let d = desc.as_deref().unwrap_or("");
         text.push_str(&format!("- [{}] {}: {}\n", category, name, d));
+    }
+    text
+}
+
+/// Fetch applicable writing patterns from the global DB, optionally filtered by genre compatibility.
+/// This queries the global DB, not the project DB.
+pub fn fetch_writing_patterns(global_conn: &rusqlite::Connection, genre: Option<&str>) -> String {
+    let sql = if genre.is_some() {
+        "SELECT pattern_name, description, usage_guide FROM writing_patterns WHERE genre_compat IS NULL OR genre_compat LIKE ?1 ORDER BY pattern_name LIMIT 10"
+    } else {
+        "SELECT pattern_name, description, usage_guide FROM writing_patterns ORDER BY pattern_name LIMIT 10"
+    };
+
+    let mut stmt = match global_conn.prepare(sql) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+
+    let rows: Vec<(String, String, Option<String>)> = if let Some(g) = genre {
+        let like = format!("%{}%", g);
+        let mapped = match stmt.query_map([&like], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        }) {
+            Ok(m) => m,
+            Err(_) => return String::new(),
+        };
+        mapped.filter_map(|r| r.ok()).collect()
+    } else {
+        let mapped = match stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        }) {
+            Ok(m) => m,
+            Err(_) => return String::new(),
+        };
+        mapped.filter_map(|r| r.ok()).collect()
+    };
+
+    if rows.is_empty() {
+        return String::new();
+    }
+
+    let mut text = String::from("【适用写作模式】\n");
+    for (name, desc, guide) in &rows {
+        text.push_str(&format!("- {}: {}\n", name, desc));
+        if let Some(g) = guide {
+            if !g.is_empty() {
+                text.push_str(&format!("  用法: {}\n", g));
+            }
+        }
     }
     text
 }

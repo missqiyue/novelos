@@ -1,9 +1,10 @@
-use super::{ChatMessage, ChatResponse, LlmConfig, StreamChunk};
-use super::provider::LlmProvider;
+use crate::llm::provider::LlmProvider;
+use crate::llm::retry::retry_async;
+use crate::llm::{ChatMessage, ChatResponse, LlmConfig, StreamChunk};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize, Clone)]
 struct AnthropicRequest {
     model: String,
     max_tokens: u32,
@@ -14,50 +15,40 @@ struct AnthropicRequest {
     stream: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize, Clone)]
 struct AnthropicMessage {
     role: String,
     content: Vec<AnthropicContent>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize, Clone)]
 struct AnthropicContent {
     #[serde(rename = "type")]
     content_type: String,
     text: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AnthropicResponse {
     content: Vec<AnthropicResponseContent>,
     model: String,
     usage: AnthropicUsage,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AnthropicResponseContent {
     #[serde(rename = "type")]
     content_type: String,
     text: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AnthropicUsage {
     input_tokens: u32,
     output_tokens: u32,
 }
 
-#[derive(Debug, Deserialize)]
-struct AnthropicError {
-    error: AnthropicErrorDetail,
-}
-
-#[derive(Debug, Deserialize)]
-struct AnthropicErrorDetail {
-    message: String,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AnthropicStreamEvent {
     #[serde(rename = "type")]
     event_type: String,
@@ -65,7 +56,7 @@ struct AnthropicStreamEvent {
     message: Option<AnthropicStreamMessage>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AnthropicStreamDelta {
     #[serde(default, rename = "type")]
     delta_type: Option<String>,
@@ -73,7 +64,7 @@ struct AnthropicStreamDelta {
     stop_reason: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AnthropicStreamMessage {
     usage: Option<AnthropicUsage>,
     model: Option<String>,
@@ -81,11 +72,15 @@ struct AnthropicStreamMessage {
 
 pub struct AnthropicProvider {
     config: LlmConfig,
+    client: reqwest::Client,
 }
 
 impl AnthropicProvider {
     pub fn new(config: LlmConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            client: crate::llm::shared_client(),
+        }
     }
 }
 
@@ -96,10 +91,81 @@ impl LlmProvider for AnthropicProvider {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
     > {
-        let config = self.config.clone();
+        let system_msg = messages.iter().find(|m| m.role == "system").map(|m| m.content.clone());
+        let chat_messages: Vec<AnthropicMessage> = messages
+            .iter()
+            .filter(|m| m.role != "system")
+            .map(|m| AnthropicMessage {
+                role: if m.role == "assistant" { "assistant".to_string() } else { "user".to_string() },
+                content: vec![AnthropicContent {
+                    content_type: "text".to_string(),
+                    text: m.content.clone(),
+                }],
+            })
+            .collect();
+
+        let body = AnthropicRequest {
+            model: self.config.model.clone(),
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
+            system: system_msg,
+            messages: chat_messages,
+            stream: false,
+        };
+
+        let base_url = if self.config.base_url.is_empty() {
+            "https://api.anthropic.com".to_string()
+        } else {
+            self.config.base_url.trim_end_matches('/').to_string()
+        };
+        let client = self.client.clone();
+        let api_key = self.config.api_key.clone();
+
         Box::pin(async move {
-            let provider = AnthropicProvider { config };
-            provider.do_chat(messages).await
+            let data = retry_async(3, move |_attempt| {
+                let client = client.clone();
+                let api_key = api_key.clone();
+                let base_url = base_url.clone();
+                let body = body.clone();
+                async move {
+                    let resp = client
+                        .post(format!("{}/v1/messages", base_url))
+                        .header("x-api-key", &api_key)
+                        .header("anthropic-version", "2023-06-01")
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Network error: {}", e))?;
+
+                    let status = resp.status();
+                    if status.as_u16() == 429 || status.as_u16() >= 500 {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(format!("Anthropic API error {}: {}", status.as_u16(), text));
+                    }
+                    if !status.is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(format!("Anthropic API error {}: {}", status.as_u16(), text));
+                    }
+
+                    resp.json::<AnthropicResponse>().await
+                        .map_err(|e| format!("JSON parse error: {}", e))
+                }
+            }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
+
+            let content = data.content.iter()
+                .filter(|c| c.content_type == "text")
+                .map(|c| c.text.clone())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            Ok(ChatResponse {
+                content,
+                prompt_tokens: data.usage.input_tokens,
+                completion_tokens: data.usage.output_tokens,
+                total_tokens: data.usage.input_tokens + data.usage.output_tokens,
+                model: data.model,
+            })
         })
     }
 
@@ -113,9 +179,8 @@ impl LlmProvider for AnthropicProvider {
         Self: Sized + Send + 'static,
     {
         let config = self.config.clone();
+        let client = self.client;
         let stream = async_stream::stream! {
-            let provider = AnthropicProvider { config };
-
             let system_msg = messages.iter().find(|m| m.role == "system").map(|m| m.content.clone());
             let chat_messages: Vec<AnthropicMessage> = messages
                 .iter()
@@ -130,25 +195,24 @@ impl LlmProvider for AnthropicProvider {
                 .collect();
 
             let body = AnthropicRequest {
-                model: provider.config.model.clone(),
-                max_tokens: provider.config.max_tokens,
-                temperature: provider.config.temperature,
+                model: config.model.clone(),
+                max_tokens: config.max_tokens,
+                temperature: config.temperature,
                 system: system_msg,
                 messages: chat_messages,
                 stream: true,
             };
 
-            let base_url = if provider.config.base_url.is_empty() {
+            let base_url = if config.base_url.is_empty() {
                 "https://api.anthropic.com".to_string()
             } else {
-                provider.config.base_url.trim_end_matches('/').to_string()
+                config.base_url.trim_end_matches('/').to_string()
             };
-            let model = provider.config.model.clone();
+            let model = config.model.clone();
 
-            let client = reqwest::Client::new();
             let response = match client
                 .post(format!("{}/v1/messages", base_url))
-                .header("x-api-key", &provider.config.api_key)
+                .header("x-api-key", &config.api_key)
                 .header("anthropic-version", "2023-06-01")
                 .header("Content-Type", "application/json")
                 .json(&body)
@@ -180,7 +244,7 @@ impl LlmProvider for AnthropicProvider {
                     let line = buffer[..line_end].trim().to_string();
                     buffer = buffer[line_end + 1..].to_string();
 
-                    if !line.starts_with("data: ") {
+                    if line.is_empty() || !line.starts_with("data: ") {
                         continue;
                     }
                     let data = &line[6..];
@@ -236,72 +300,16 @@ impl LlmProvider for AnthropicProvider {
         };
         Box::pin(stream)
     }
-}
 
-impl AnthropicProvider {
-    async fn do_chat(
+    fn embed(
         &self,
-        messages: Vec<ChatMessage>,
-    ) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let client = reqwest::Client::new();
-
-        // Separate system message from user/assistant messages
-        let system_msg = messages.iter().find(|m| m.role == "system").map(|m| m.content.clone());
-        let chat_messages: Vec<AnthropicMessage> = messages
-            .iter()
-            .filter(|m| m.role != "system")
-            .map(|m| AnthropicMessage {
-                role: if m.role == "assistant" { "assistant".to_string() } else { "user".to_string() },
-                content: vec![AnthropicContent {
-                    content_type: "text".to_string(),
-                    text: m.content.clone(),
-                }],
-            })
-            .collect();
-
-        let body = AnthropicRequest {
-            model: self.config.model.clone(),
-            max_tokens: self.config.max_tokens,
-            temperature: self.config.temperature,
-            system: system_msg,
-            messages: chat_messages,
-            stream: false,
-        };
-
-        let base_url = if self.config.base_url.is_empty() {
-            "https://api.anthropic.com".to_string()
-        } else {
-            self.config.base_url.trim_end_matches('/').to_string()
-        };
-
-        let resp = client
-            .post(format!("{}/v1/messages", base_url))
-            .header("x-api-key", &self.config.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let err_text = resp.text().await.unwrap_or_default();
-            return Err(format!("Anthropic API error {}: {}", status.as_u16(), err_text).into());
-        }
-
-        let data: AnthropicResponse = resp.json().await?;
-
-        let content = data.content.iter()
-            .filter(|c| c.content_type == "text")
-            .map(|c| c.text.clone())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        Ok(ChatResponse {
-            content,
-            prompt_tokens: data.usage.input_tokens,
-            completion_tokens: data.usage.output_tokens,
-            total_tokens: data.usage.input_tokens + data.usage.output_tokens,
-            model: data.model,
+        _text: &str,
+        _model: &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+    > {
+        Box::pin(async move {
+            Err("Anthropic does not support embeddings".into())
         })
     }
 }

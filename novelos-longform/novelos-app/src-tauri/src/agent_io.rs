@@ -103,7 +103,7 @@ impl AgentOutput {
                 confidence: parsed.get("score")
                     .and_then(|v| v.as_f64())
                     .map(|s| (s as f32 / 10.0).min(1.0))
-                    .unwrap_or(0.7),
+                    .unwrap_or(0.0),
                 next_action: parsed.get("verdict")
                     .or(parsed.get("next_action"))
                     .and_then(|v| v.as_str())
@@ -115,7 +115,7 @@ impl AgentOutput {
                 result: content.to_string(),
                 reasons: Vec::new(),
                 risk_flags: Vec::new(),
-                confidence: 0.7,
+                confidence: 0.0,
                 next_action: None,
                 tokens_used: None,
             }

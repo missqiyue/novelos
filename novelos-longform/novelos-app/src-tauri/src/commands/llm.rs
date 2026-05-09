@@ -1,18 +1,66 @@
 use crate::db::DbState;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::llm::{ChatMessage, ChatResponse, LlmConfig, LlmService, StreamChunk};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 use futures::StreamExt;
+/// Masks an API key for safe display in the frontend.
+/// - Empty key → empty string
+/// - Key length ≤ 8 → "****"
+/// - Otherwise → "****" + last 4 chars
+fn mask_api_key(key: &str) -> String {
+    if key.is_empty() {
+        return String::new();
+    }
+    if key.len() <= 8 {
+        return "****".to_string();
+    }
+    format!("****{}", &key[key.len() - 4..])
+}
+
+/// Returns (input_price_per_1m_tokens, output_price_per_1m_tokens) for a given model.
+/// Uses case-insensitive prefix matching.
+fn get_model_pricing(model: &str) -> (f64, f64) {
+    let lower = model.to_lowercase();
+    if lower.starts_with("gpt-4o-mini") {
+        (0.15, 0.60)
+    } else if lower.starts_with("gpt-4o") {
+        (2.5, 10.0)
+    } else if lower.starts_with("gpt-4-turbo") {
+        (10.0, 30.0)
+    } else if lower.starts_with("claude-3.5-sonnet") || lower.starts_with("claude-3-5") {
+        (3.0, 15.0)
+    } else if lower.starts_with("claude-3-haiku") {
+        (0.25, 1.25)
+    } else if lower.starts_with("ollama/") || lower.contains("ollama") {
+        (0.0, 0.0)
+    } else {
+        (2.5, 10.0) // default: GPT-4o rates
+    }
+}
+
+
+pub struct StreamCancelTokens(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
+
 
 pub struct LlmState {
-    pub service: Mutex<LlmService>,
+    pub service: Arc<Mutex<LlmService>>,
+}
+
+impl Clone for LlmState {
+    fn clone(&self) -> Self {
+        Self {
+            service: Arc::clone(&self.service),
+        }
+    }
 }
 
 impl LlmState {
     pub fn new() -> Self {
         Self {
-            service: Mutex::new(LlmService::new(LlmConfig::default())),
+            service: Arc::new(Mutex::new(LlmService::new(LlmConfig::default()))),
         }
     }
 }
@@ -25,12 +73,16 @@ pub struct UpdateLlmConfigInput {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
+    pub embedding_provider: Option<String>,
+    pub embedding_model: Option<String>,
 }
 
 #[tauri::command]
 pub fn get_llm_config(state: State<'_, LlmState>) -> Result<LlmConfig, String> {
     let service = state.service.lock().map_err(|e| e.to_string())?;
-    Ok(service.config.clone())
+    let mut config = service.config.clone();
+    config.api_key = mask_api_key(&config.api_key);
+    Ok(config)
 }
 
 #[tauri::command]
@@ -56,6 +108,12 @@ pub fn update_llm_config(state: State<'_, LlmState>, input: UpdateLlmConfigInput
     if let Some(v) = input.temperature {
         config.temperature = v;
     }
+    if let Some(v) = input.embedding_provider {
+        config.embedding_provider = v;
+    }
+    if let Some(v) = input.embedding_model {
+        config.embedding_model = v;
+    }
 
     service.update_config(config.clone());
     Ok(config)
@@ -63,23 +121,25 @@ pub fn update_llm_config(state: State<'_, LlmState>, input: UpdateLlmConfigInput
 
 #[tauri::command]
 pub async fn chat_completion(state: State<'_, LlmState>, messages: Vec<ChatMessage>) -> Result<ChatResponse, String> {
-    let config = {
+    let (config, client) = {
         let service = state.service.lock().map_err(|e| e.to_string())?;
-        service.config.clone()
+        (service.config.clone(), service.client.clone())
     };
 
-    let svc = LlmService::new(config);
+    let mut svc = LlmService::new(config);
+    svc.client = client;
     svc.chat(messages).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn chat_with_system_prompt(state: State<'_, LlmState>, system_prompt: String, user_prompt: String) -> Result<ChatResponse, String> {
-    let config = {
+    let (config, client) = {
         let service = state.service.lock().map_err(|e| e.to_string())?;
-        service.config.clone()
+        (service.config.clone(), service.client.clone())
     };
 
-    let svc = LlmService::new(config);
+    let mut svc = LlmService::new(config);
+    svc.client = client;
     svc.chat_with_system(&system_prompt, &user_prompt)
         .await
         .map_err(|e| e.to_string())
@@ -173,8 +233,26 @@ pub fn get_token_usage(db: State<'_, DbState>) -> Result<TokenUsageSummary, Stri
         Ok(ModelTokenUsage { model: row.get(0)?, calls: row.get(1)?, total_tokens: row.get(2)? })
     }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
 
-    // Cost estimate: GPT-4o ~$2.5/1M input, $10/1M output; Claude ~$3/$15; Ollama free
-    let cost = (total_prompt as f64 * 2.5 + total_completion as f64 * 10.0) / 1_000_000.0;
+    // Per-model cost calculation using actual pricing table
+    let mut cost = 0.0;
+    for m in &by_model {
+        let (input_price, output_price) = get_model_pricing(&m.model);
+        let model_prompt: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(prompt_tokens), 0) FROM llm_api_calls WHERE model = ?1",
+                rusqlite::params![m.model],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let model_completion: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(completion_tokens), 0) FROM llm_api_calls WHERE model = ?1",
+                rusqlite::params![m.model],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        cost += (model_prompt as f64 * input_price + model_completion as f64 * output_price) / 1_000_000.0;
+    }
 
     Ok(TokenUsageSummary {
         total_calls,
@@ -199,18 +277,31 @@ pub struct StreamMessage {
 pub async fn chat_completion_stream(
     app: AppHandle,
     state: State<'_, LlmState>,
+    cancel_tokens: State<'_, StreamCancelTokens>,
     messages: Vec<ChatMessage>,
     request_id: String,
 ) -> Result<(), String> {
-    let config = {
+    // Register cancellation token
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    {
+        let mut tokens = cancel_tokens.0.lock().map_err(|e| e.to_string())?;
+        tokens.insert(request_id.clone(), cancel_flag.clone());
+    }
+
+    let (config, client) = {
         let service = state.service.lock().map_err(|e| e.to_string())?;
-        service.config.clone()
+        (service.config.clone(), service.client.clone())
     };
 
-    let svc = LlmService::new(config);
+    let mut svc = LlmService::new(config);
+    svc.client = client;
     let mut stream = svc.chat_stream(messages);
 
     while let Some(item) = stream.next().await {
+        // Check cancellation
+        if cancel_flag.load(Ordering::SeqCst) {
+            break;
+        }
         let chunk = item.map_err(|e| e.to_string())?;
         let msg = StreamMessage {
             request_id: request_id.clone(),
@@ -219,5 +310,22 @@ pub async fn chat_completion_stream(
         let _ = app.emit("llm-stream-chunk", &msg);
     }
 
+    // Clean up token
+    {
+        let mut tokens = cancel_tokens.0.lock().map_err(|e| e.to_string())?;
+        tokens.remove(&request_id);
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_stream(tokens: State<'_, StreamCancelTokens>, request_id: String) -> Result<bool, String> {
+    let tokens = tokens.0.lock().map_err(|e| e.to_string())?;
+    if let Some(token) = tokens.get(&request_id) {
+        token.store(true, Ordering::SeqCst);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }

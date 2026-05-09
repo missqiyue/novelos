@@ -4,6 +4,20 @@ pub mod openai;
 pub mod provider;
 
 use provider::LlmProvider;
+pub mod retry;
+
+use std::sync::Arc;
+
+/// Shared HTTP client for all LLM providers.
+/// Reuses connection pools and keep-alive across requests.
+pub fn shared_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .unwrap_or_default()
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LlmConfig {
@@ -13,6 +27,11 @@ pub struct LlmConfig {
     pub model: String,
     pub max_tokens: u32,
     pub temperature: f32,
+    /// Embedding provider: "ollama" (local), "openai", or empty (auto-detect).
+    /// When empty, auto-detect tries Ollama first, then falls back to OpenAI.
+    pub embedding_provider: String,
+    /// Embedding model name. Defaults: "nomic-embed-text" for Ollama, "text-embedding-3-small" for OpenAI.
+    pub embedding_model: String,
 }
 
 impl Default for LlmConfig {
@@ -24,6 +43,8 @@ impl Default for LlmConfig {
             model: "gpt-4o".to_string(),
             max_tokens: 4096,
             temperature: 0.7,
+            embedding_provider: String::new(), // auto-detect
+            embedding_model: String::new(),   // use provider default
         }
     }
 }
@@ -52,31 +73,17 @@ pub struct StreamChunk {
     pub model: String,
 }
 
-// ─── Embedding types (RAG-001) ───
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct EmbeddingRequest {
-    model: String,
-    input: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct EmbeddingResponse {
-    data: Vec<EmbeddingData>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct EmbeddingData {
-    embedding: Vec<f32>,
-}
-
 pub struct LlmService {
     pub config: LlmConfig,
+    pub client: reqwest::Client,
 }
 
 impl LlmService {
     pub fn new(config: LlmConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            client: shared_client(),
+        }
     }
 
     pub fn update_config(&mut self, config: LlmConfig) {
@@ -135,49 +142,58 @@ impl LlmService {
         }
     }
 
-    /// RAG-001: Generate an embedding vector for the given text.
-    /// Currently only supported for the OpenAI provider.
+    /// Generate an embedding vector for the given text.
+    /// Dispatches based on `embedding_provider` config with auto-detect fallback:
+    /// - "ollama": use local Ollama embedding endpoint
+    /// - "openai": use OpenAI-compatible embedding endpoint
+    /// - empty (auto-detect): try Ollama first, fall back to OpenAI
     pub async fn embed(&self, text: &str) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        match self.config.provider.as_str() {
-            "anthropic" | "ollama" => {
-                Err("embedding not supported for this provider".into())
+        let emb_provider = self.config.embedding_provider.as_str();
+        let emb_model = self.resolve_embedding_model(emb_provider);
+
+        match emb_provider {
+            "ollama" => {
+                let provider = ollama::OllamaProvider::new(self.config.clone());
+                provider.embed(text, &emb_model).await
+            }
+            "openai" => {
+                let provider = openai::OpenAiProvider::new(self.config.clone());
+                provider.embed(text, &emb_model).await
             }
             _ => {
-                let url = format!(
-                    "{}/embeddings",
-                    self.config.base_url.trim_end_matches('/')
-                );
-
-                let body = EmbeddingRequest {
-                    model: "text-embedding-3-small".to_string(),
-                    input: text.to_string(),
+                // Auto-detect: try Ollama first, fall back to OpenAI
+                let ollama_base = if self.config.provider == "ollama" {
+                    self.config.base_url.clone()
+                } else {
+                    String::new()
                 };
 
-                let client = reqwest::Client::new();
-                let response = client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", self.config.api_key))
-                    .header("Content-Type", "application/json")
-                    .json(&body)
-                    .send()
-                    .await?;
-
-                let status = response.status();
-                if !status.is_success() {
-                    let err_text = response.text().await?;
-                    return Err(format!("Embedding API error ({}): {}", status, err_text).into());
+                if ollama::OllamaProvider::is_available(&ollama_base).await {
+                    let mut config = self.config.clone();
+                    if config.base_url.is_empty() {
+                        config.base_url = "http://localhost:11434".to_string();
+                    }
+                    let provider = ollama::OllamaProvider::new(config);
+                    let model = self.resolve_embedding_model("ollama");
+                    provider.embed(text, &model).await
+                } else {
+                    let provider = openai::OpenAiProvider::new(self.config.clone());
+                    let model = self.resolve_embedding_model("openai");
+                    provider.embed(text, &model).await
                 }
-
-                let api_resp: EmbeddingResponse = response.json().await?;
-                let embedding = api_resp
-                    .data
-                    .into_iter()
-                    .next()
-                    .map(|d| d.embedding)
-                    .ok_or("No embedding returned from API")?;
-
-                Ok(embedding)
             }
+        }
+    }
+
+    /// Resolve the embedding model name based on provider.
+    /// If `embedding_model` is set in config, use it; otherwise use provider defaults.
+    fn resolve_embedding_model(&self, provider: &str) -> String {
+        if !self.config.embedding_model.is_empty() {
+            return self.config.embedding_model.clone();
+        }
+        match provider {
+            "ollama" => "nomic-embed-text".to_string(),
+            _ => "text-embedding-3-small".to_string(),
         }
     }
 }

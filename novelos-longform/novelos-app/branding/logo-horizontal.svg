@@ -1,0 +1,20 @@
+<svg width="1600" height="420" viewBox="0 0 1600 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="plate" x1="38" y1="18" x2="302" y2="322" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#112742"/>
+      <stop offset="1" stop-color="#0B1627"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="24" y="24" width="312" height="312" rx="80" fill="url(#plate)"/>
+  <rect x="28" y="28" width="304" height="304" rx="76" stroke="white" stroke-opacity="0.08"/>
+
+  <path d="M112 264C100 221 100 127 118 86" stroke="#F7F0E2" stroke-width="52" stroke-linecap="round"/>
+  <path d="M250 82C267 129 266 225 252 260" stroke="#38D0C6" stroke-width="52" stroke-linecap="round"/>
+  <path d="M120 108C156 137 195 180 246 243" stroke="#F3B44C" stroke-width="48" stroke-linecap="round"/>
+
+  <text x="388" y="156" fill="#102033" font-size="122" font-weight="700" letter-spacing="-0.03em" font-family="Avenir Next, SF Pro Display, Segoe UI, PingFang SC, Noto Sans SC, sans-serif">NovelOS</text>
+  <text x="396" y="238" fill="#D68A1B" font-size="70" font-weight="700" letter-spacing="0.08em" font-family="Avenir Next, SF Pro Display, Segoe UI, PingFang SC, Noto Sans SC, sans-serif">LONGFORM</text>
+  <text x="396" y="304" fill="#526173" font-size="38" font-weight="500" letter-spacing="0.02em" font-family="Avenir Next, SF Pro Text, Segoe UI, PingFang SC, Noto Sans SC, sans-serif">AI 长篇小说创作系统</text>
+  <text x="396" y="352" fill="#7A8696" font-size="28" font-weight="500" letter-spacing="0.08em" font-family="Avenir Next, SF Pro Text, Segoe UI, PingFang SC, Noto Sans SC, sans-serif">OUTLINE · CONTINUITY · AGENTS · LEDGER</text>
+</svg>

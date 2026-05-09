@@ -1,30 +1,9 @@
 use crate::commands::llm::LlmState;
+use crate::db::DbState;
+use tauri::State;
 use crate::llm::LlmService;
-use crate::rag::{BookVectorStore, IndexStats};
+use crate::rag::{self, IndexStats, RagIntentFilter};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use tauri::{Manager, State};
-
-/// Get the RAG index file path for the given project.
-fn rag_index_path(app: &tauri::AppHandle, project_id: &str) -> std::path::PathBuf {
-    let data_dir = app.path().app_data_dir().unwrap_or_default();
-    data_dir.join("novelos").join("books").join(project_id).join("rag_index.json")
-}
-
-// ─── RAG Managed State ───
-
-/// RCL-004: Managed state holding the per-book vector store for RAG operations.
-pub struct RagState {
-    pub store: Mutex<BookVectorStore>,
-}
-
-impl RagState {
-    pub fn new() -> Self {
-        Self {
-            store: Mutex::new(BookVectorStore::new("")),
-        }
-    }
-}
 
 // ─── RAG-006: Existing placeholder ───
 
@@ -51,18 +30,19 @@ fn default_top_k() -> usize {
 /// RAG-006: Search for chapters similar to a text query.
 ///
 /// The query is embedded via the configured LLM provider and compared
-/// against indexed chapter vectors. Returns up to top_k results with
+/// against SQLite-stored chapter vectors. Returns up to top_k results with
 /// chapter_number, similarity score, and a text snippet.
 #[tauri::command]
 pub async fn search_similar_chapters(
     llm: State<'_, LlmState>,
-    rag: State<'_, RagState>,
+    db: State<'_, DbState>,
     input: SearchSimilarChaptersInput,
 ) -> Result<Vec<SimilarChapterResult>, String> {
     // Quick emptiness check
     {
-        let store = rag.store.lock().map_err(|e| e.to_string())?;
-        if store.chapter_index.store.is_empty() {
+        let guard = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = guard.as_ref().ok_or("No project open")?;
+        if rag::is_rag_empty(conn)? {
             return Ok(Vec::new());
         }
     }
@@ -75,9 +55,10 @@ pub async fn search_similar_chapters(
     let svc = LlmService::new(config);
     let embedding = svc.embed(&input.query).await.map_err(|e| e.to_string())?;
 
-    // Search the vector store
-    let store = rag.store.lock().map_err(|e| e.to_string())?;
-    let raw_results = store.chapter_index.search_similar(&embedding, input.top_k);
+    // Search the SQLite-stored vectors
+    let guard = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("No project open")?;
+    let raw_results = rag::search_similar_sqlite(conn, &embedding, input.top_k, None)?;
 
     let results: Vec<SimilarChapterResult> = raw_results
         .into_iter()
@@ -109,10 +90,13 @@ pub struct RagSemanticRecallResponse {
     pub message: Option<String>,
 }
 
-/// RCL-004: Semantic recall using vector similarity search.
+/// RCL-004: Semantic recall using vector similarity search with intent-driven filtering.
 ///
 /// Embeds the query_text via the configured LLM provider and searches
-/// the in-memory VectorStore for the most similar chapter chunks.
+/// the SQLite-stored RAG chunks for the most similar chapter chunks.
+///
+/// When an `intent` filter is provided, chunks matching intent criteria
+/// (characters, POV, foreshadows, chapter range) receive similarity boosts.
 ///
 /// Returns up to `top_k` results with chapter_number, chunk_text, and
 /// cosine similarity score. If no chapters have been indexed, returns
@@ -120,16 +104,18 @@ pub struct RagSemanticRecallResponse {
 #[tauri::command]
 pub async fn rag_semantic_recall(
     llm: State<'_, LlmState>,
-    rag: State<'_, RagState>,
+    db: State<'_, DbState>,
     query_text: String,
     top_k: Option<usize>,
+    intent: Option<RagIntentFilter>,
 ) -> Result<RagSemanticRecallResponse, String> {
     let k = top_k.unwrap_or(5).max(1);
 
     // Quick emptiness check — don't hold the lock across await
     {
-        let store = rag.store.lock().map_err(|e| e.to_string())?;
-        if store.chapter_index.store.is_empty() {
+        let guard = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = guard.as_ref().ok_or("No project open")?;
+        if rag::is_rag_empty(conn)? {
             return Ok(RagSemanticRecallResponse {
                 results: vec![],
                 message: Some("No indexed chapters found".to_string()),
@@ -145,9 +131,10 @@ pub async fn rag_semantic_recall(
     let svc = LlmService::new(config);
     let embedding = svc.embed(&query_text).await.map_err(|e| e.to_string())?;
 
-    // Search the in-memory vector store
-    let store = rag.store.lock().map_err(|e| e.to_string())?;
-    let raw_results = store.chapter_index.search_similar(&embedding, k);
+    // Search with intent-driven boosting
+    let guard = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("No project open")?;
+    let raw_results = rag::search_similar_sqlite(conn, &embedding, k, intent.as_ref())?;
 
     let results: Vec<RagSemanticRecallItem> = raw_results
         .into_iter()
@@ -168,71 +155,24 @@ pub async fn rag_semantic_recall(
 
 // ─── RCL-006: Cross-book data isolation commands ───
 
-/// RCL-006: Clear all vectors for a specific project.
-///
-/// Verifies that the stored project_id matches the given project_id
-/// (or is empty), then clears the in-memory chapter index. Returns
-/// an error if the project_id mismatches, which guards against
-/// accidentally clearing another book's index.
+/// RCL-006: Clear all RAG chunks for the current project.
 #[tauri::command]
 pub fn clear_book_index(
-    rag: State<'_, RagState>,
-    project_id: String,
+    db: State<'_, DbState>,
+    _project_id: String,
 ) -> Result<bool, String> {
-    let mut store = rag.store.lock().map_err(|e| e.to_string())?;
-    if store.clear_book_index(&project_id) {
-        Ok(true)
-    } else {
-        Err(format!(
-            "Project ID mismatch: store holds '{}', requested clear for '{}'",
-            store.project_id, project_id
-        ))
-    }
+    let guard = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("No project open")?;
+    rag::clear_rag_chunks(conn)?;
+    Ok(true)
 }
 
-/// RCL-006: Return statistics about the current in-memory vector index.
+/// RCL-006: Return statistics about the current RAG index.
 #[tauri::command]
 pub fn get_index_stats(
-    rag: State<'_, RagState>,
+    db: State<'_, DbState>,
 ) -> Result<IndexStats, String> {
-    let store = rag.store.lock().map_err(|e| e.to_string())?;
-    Ok(store.get_index_stats())
-}
-
-/// Save the current RAG index to disk for the given project.
-#[tauri::command]
-pub fn save_rag_index(
-    app: tauri::AppHandle,
-    rag: State<'_, RagState>,
-    project_id: String,
-) -> Result<(), String> {
-    let path = rag_index_path(&app, &project_id);
-    let store = rag.store.lock().map_err(|e| e.to_string())?;
-    store.save_to_file(&path).map_err(|e| format!("Failed to save RAG index: {}", e))
-}
-
-/// Load the RAG index from disk for the given project.
-/// Replaces the in-memory store with the loaded index.
-#[tauri::command]
-pub fn load_rag_index(
-    app: tauri::AppHandle,
-    rag: State<'_, RagState>,
-    project_id: String,
-) -> Result<bool, String> {
-    let path = rag_index_path(&app, &project_id);
-    let loaded = BookVectorStore::load_from_file(&path);
-    match loaded {
-        Some(book_store) => {
-            let mut store = rag.store.lock().map_err(|e| e.to_string())?;
-            *store = book_store;
-            Ok(true)
-        }
-        None => {
-            // No saved index — initialize empty store for this project
-            let mut store = rag.store.lock().map_err(|e| e.to_string())?;
-            store.project_id = project_id;
-            store.chapter_index.clear();
-            Ok(false)
-        }
-    }
+    let guard = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("No project open")?;
+    rag::get_rag_stats_sqlite(conn)
 }

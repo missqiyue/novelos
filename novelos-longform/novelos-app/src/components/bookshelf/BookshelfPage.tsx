@@ -73,7 +73,7 @@ export function BookshelfPage() {
 
   const handleExport = async (
     projectId: string,
-    format: "txt" | "md" | "docx" | "epub" = "txt",
+    format: "txt" | "md" | "docx" | "epub" | "pdf" = "txt",
   ) => {
     setExporting(projectId);
     try {
@@ -81,6 +81,7 @@ export function BookshelfPage() {
       if (format === "md") path = await projectApi.exportMd(projectId);
       else if (format === "docx") path = await projectApi.exportDocx(projectId);
       else if (format === "epub") path = await projectApi.exportEpub(projectId);
+      else if (format === "pdf") path = await projectApi.exportPdf(projectId);
       else path = await projectApi.exportTxt(projectId);
       alert(`已导出至: ${path}`);
     } catch (e: any) {
@@ -149,7 +150,7 @@ export function BookshelfPage() {
     setCtxMenu(null);
   };
 
-  const handleCtxExport = async (format: "txt" | "md" | "docx" | "epub") => {
+  const handleCtxExport = async (format: "txt" | "md" | "docx" | "epub" | "pdf") => {
     if (!ctxMenu) return;
     await handleExport(ctxMenu.item.project_id, format);
     setCtxMenu(null);
@@ -166,7 +167,7 @@ export function BookshelfPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {showWizard && <WelcomeWizard onComplete={completeWizard} />}
-      <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
@@ -333,6 +334,17 @@ export function BookshelfPage() {
                     >
                       EPUB
                     </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleExport(item.project_id, "pdf");
+                      }}
+                      disabled={exporting === item.project_id}
+                      className="p-1 hover:text-indigo-500 disabled:opacity-50 text-xs font-mono"
+                      title="导出PDF"
+                    >
+                      PDF
+                    </button>
                     {confirmDeleteId === item.id ? (
                       <div className="flex items-center gap-1">
                         <button
@@ -460,6 +472,13 @@ export function BookshelfPage() {
             >
               <FileText size={15} className="text-gray-400" />
               导出 EPUB
+            </button>
+            <button
+              onClick={() => handleCtxExport("pdf")}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <FileText size={15} className="text-gray-400" />
+              导出 PDF
             </button>
             <div className="border-t border-gray-100 my-1" />
             <button

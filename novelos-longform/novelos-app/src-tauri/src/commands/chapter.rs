@@ -179,7 +179,12 @@ pub fn create_chapter(db: State<'_, DbState>, chapter_number: i64, title: Option
 }
 
 #[tauri::command]
-pub fn update_chapter_draft(db: State<'_, DbState>, chapter_number: i64, draft_text: String) -> Result<ChapterInfo, String> {
+pub fn update_chapter_draft(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    draft_text: String,
+    skip_version: Option<bool>,
+) -> Result<ChapterInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -192,21 +197,23 @@ pub fn update_chapter_draft(db: State<'_, DbState>, chapter_number: i64, draft_t
     )
     .map_err(|e| e.to_string())?;
 
-    // Create a version record
-    let chapter_id: String = conn
-        .query_row("SELECT id FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
+    // Only create a version record for manual saves (not auto-save)
+    if !skip_version.unwrap_or(false) {
+        let chapter_id: String = conn
+            .query_row("SELECT id FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+
+        let next_version: i64 = conn
+            .query_row("SELECT COALESCE(MAX(version_no), 0) + 1 FROM chapter_versions WHERE chapter_id = ?1", [&chapter_id], |r| r.get(0))
+            .unwrap_or(1);
+
+        let version_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO chapter_versions (id, chapter_id, version_no, content_type, content, created_by, created_at) VALUES (?1, ?2, ?3, 'draft', ?4, 'user', ?5)",
+            rusqlite::params![version_id, chapter_id, next_version, draft_text, now],
+        )
         .map_err(|e| e.to_string())?;
-
-    let next_version: i64 = conn
-        .query_row("SELECT COALESCE(MAX(version_no), 0) + 1 FROM chapter_versions WHERE chapter_id = ?1", [&chapter_id], |r| r.get(0))
-        .unwrap_or(1);
-
-    let version_id = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO chapter_versions (id, chapter_id, version_no, content_type, content, created_by, created_at) VALUES (?1, ?2, ?3, 'draft', ?4, 'user', ?5)",
-        rusqlite::params![version_id, chapter_id, next_version, draft_text, now],
-    )
-    .map_err(|e| e.to_string())?;
+    }
 
     get_chapter_inner(conn, chapter_number)
 }

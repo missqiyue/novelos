@@ -1,9 +1,10 @@
 use crate::llm::provider::LlmProvider;
+use crate::llm::retry::retry_async;
 use crate::llm::{ChatMessage, ChatResponse, LlmConfig, StreamChunk};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct OpenAiRequest {
     model: String,
     messages: Vec<OpenAiMessage>,
@@ -13,7 +14,7 @@ struct OpenAiRequest {
     stream: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct OpenAiMessage {
     role: String,
     content: String,
@@ -55,13 +56,37 @@ struct OpenAiStreamChunk {
     model: Option<String>,
 }
 
+#[derive(Serialize, Clone)]
+struct OpenAiEmbedRequest {
+    model: String,
+    input: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiEmbedResponse {
+    data: Vec<OpenAiEmbedData>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiEmbedData {
+    embedding: Vec<f32>,
+}
+
 pub struct OpenAiProvider {
     config: LlmConfig,
+    client: reqwest::Client,
 }
 
 impl OpenAiProvider {
     pub fn new(config: LlmConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            client: crate::llm::shared_client(),
+        }
+    }
+
+    pub fn with_client(config: LlmConfig, client: reqwest::Client) -> Self {
+        Self { config, client }
     }
 }
 
@@ -72,51 +97,54 @@ impl LlmProvider for OpenAiProvider {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
     > {
-        Box::pin(async move {
-            let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
-
-            let openai_messages: Vec<OpenAiMessage> = messages
+        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let body = OpenAiRequest {
+            model: self.config.model.clone(),
+            messages: messages
                 .into_iter()
-                .map(|m| OpenAiMessage {
-                    role: m.role,
-                    content: m.content,
-                })
-                .collect();
+                .map(|m| OpenAiMessage { role: m.role, content: m.content })
+                .collect(),
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
+            stream: false,
+        };
+        let client = self.client.clone();
+        let api_key = self.config.api_key.clone();
+        let url = url;
 
-            let body = OpenAiRequest {
-                model: self.config.model.clone(),
-                messages: openai_messages,
-                max_tokens: self.config.max_tokens,
-                temperature: self.config.temperature,
-                stream: false,
-            };
+        Box::pin(async move {
+            let api_resp = retry_async(3, move |_attempt| {
+                let client = client.clone();
+                let url = url.clone();
+                let api_key = api_key.clone();
+                let body = body.clone();
+                async move {
+                    let response = client
+                        .post(&url)
+                        .header("Authorization", format!("Bearer {}", api_key))
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Network error: {}", e))?;
 
-            let client = reqwest::Client::new();
-            let response = client
-                .post(&url)
-                .header("Authorization", format!("Bearer {}", self.config.api_key))
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await?;
+                    let status = response.status();
+                    if status.as_u16() == 429 || status.as_u16() >= 500 {
+                        let text = response.text().await.unwrap_or_default();
+                        return Err(format!("LLM API error ({}): {}", status, text));
+                    }
+                    if !status.is_success() {
+                        let text = response.text().await.unwrap_or_default();
+                        return Err(format!("LLM API error ({}): {}", status, text));
+                    }
 
-            let status = response.status();
-            if status.as_u16() == 429 {
-                return Err(format!("Rate limited (429): {}", status).into());
-            }
-            if !status.is_success() {
-                let text = response.text().await?;
-                return Err(format!("LLM API error ({}): {}", status, text).into());
-            }
-
-            let api_resp: OpenAiResponse = response.json().await?;
+                    response.json::<OpenAiResponse>().await
+                        .map_err(|e| format!("JSON parse error: {}", e))
+                }
+            }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
 
             Ok(ChatResponse {
-                content: api_resp
-                    .choices
-                    .first()
-                    .map(|c| c.message.content.clone())
-                    .unwrap_or_default(),
+                content: api_resp.choices.first().map(|c| c.message.content.clone()).unwrap_or_default(),
                 prompt_tokens: api_resp.usage.prompt_tokens,
                 completion_tokens: api_resp.usage.completion_tokens,
                 total_tokens: api_resp.usage.total_tokens,
@@ -142,12 +170,10 @@ impl LlmProvider for OpenAiProvider {
 
         let openai_messages: Vec<OpenAiMessage> = messages
             .into_iter()
-            .map(|m| OpenAiMessage {
-                role: m.role,
-                content: m.content,
-            })
+            .map(|m| OpenAiMessage { role: m.role, content: m.content })
             .collect();
 
+        let client = self.client;
         let stream = async_stream::stream! {
             let body = OpenAiRequest {
                 model: model.clone(),
@@ -157,7 +183,6 @@ impl LlmProvider for OpenAiProvider {
                 stream: true,
             };
 
-            let client = reqwest::Client::new();
             let response = match client
                 .post(&url)
                 .header("Authorization", format!("Bearer {}", api_key))
@@ -228,5 +253,60 @@ impl LlmProvider for OpenAiProvider {
         };
 
         Box::pin(stream)
+    }
+
+    fn embed(
+        &self,
+        text: &str,
+        model: &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+    > {
+        let url = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));
+        let api_key = self.config.api_key.clone();
+        let model = model.to_string();
+        let input = text.to_string();
+        let client = self.client.clone();
+
+        Box::pin(async move {
+            let api_resp = retry_async(2, move |_attempt| {
+                let client = client.clone();
+                let url = url.clone();
+                let api_key = api_key.clone();
+                let body = OpenAiEmbedRequest { model: model.clone(), input: input.clone() };
+                async move {
+                    let response = client
+                        .post(&url)
+                        .header("Authorization", format!("Bearer {}", api_key))
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|e| format!("Network error: {}", e))?;
+
+                    let status = response.status();
+                    if status.as_u16() == 429 || status.as_u16() >= 500 {
+                        let text = response.text().await.unwrap_or_default();
+                        return Err(format!("Embedding API error ({}): {}", status, text));
+                    }
+                    if !status.is_success() {
+                        let text = response.text().await.unwrap_or_default();
+                        return Err(format!("Embedding API error ({}): {}", status, text));
+                    }
+
+                    response.json::<OpenAiEmbedResponse>().await
+                        .map_err(|e| format!("JSON parse error: {}", e))
+                }
+            }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
+
+            let embedding = api_resp
+                .data
+                .into_iter()
+                .next()
+                .map(|d| d.embedding)
+                .ok_or("No embedding returned from API")?;
+
+            Ok(embedding)
+        })
     }
 }

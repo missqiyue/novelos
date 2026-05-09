@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLlmStore, useProjectStore } from "../../stores";
+import { checkForUpdate, installUpdate } from "../../lib/updater";
+import type { UpdateInfo } from "../../lib/updater";
 import {
   Settings,
   Key,
@@ -11,6 +13,8 @@ import {
   BookOpen,
   Bell,
   ArrowRight,
+  RefreshCw,
+  Download,
 } from "lucide-react";
 
 export function SettingsPage() {
@@ -23,6 +27,8 @@ export function SettingsPage() {
   const [model, setModel] = useState("");
   const [maxTokens, setMaxTokens] = useState(4096);
   const [temperature, setTemperature] = useState(0.7);
+  const [embeddingProvider, setEmbeddingProvider] = useState("");
+  const [embeddingModel, setEmbeddingModel] = useState("");
   const [saved, setSaved] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
 
@@ -38,6 +44,8 @@ export function SettingsPage() {
       setModel(config.model);
       setMaxTokens(config.max_tokens);
       setTemperature(config.temperature);
+      setEmbeddingProvider(config.embedding_provider || "");
+      setEmbeddingModel(config.embedding_model || "");
     }
   }, [config]);
 
@@ -55,6 +63,8 @@ export function SettingsPage() {
       model,
       max_tokens: maxTokens,
       temperature,
+      embedding_provider: embeddingProvider,
+      embedding_model: embeddingModel,
     });
     await saveConfigToDb({
       provider,
@@ -63,6 +73,8 @@ export function SettingsPage() {
       model,
       max_tokens: maxTokens,
       temperature,
+      embedding_provider: embeddingProvider,
+      embedding_model: embeddingModel,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -251,6 +263,47 @@ export function SettingsPage() {
               />
             </div>
           </div>
+
+          {/* Embedding Settings */}
+          <div className="border-t border-gray-100 pt-4 mt-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">嵌入模型配置</h3>
+            <p className="text-xs text-gray-400 mb-3">
+              用于语义检索（RAG）的嵌入模型。选择"自动检测"将优先使用本地 Ollama，不可用时回退到 OpenAI。
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">嵌入 Provider</label>
+                <select
+                  value={embeddingProvider}
+                  onChange={(e) => {
+                    setEmbeddingProvider(e.target.value);
+                    if (e.target.value === "ollama") {
+                      setEmbeddingModel("nomic-embed-text");
+                    } else if (e.target.value === "openai") {
+                      setEmbeddingModel("text-embedding-3-small");
+                    } else {
+                      setEmbeddingModel("");
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">自动检测</option>
+                  <option value="ollama">Ollama 本地</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">嵌入模型</label>
+                <input
+                  type="text"
+                  value={embeddingModel}
+                  onChange={(e) => setEmbeddingModel(e.target.value)}
+                  placeholder={embeddingProvider === "ollama" ? "nomic-embed-text" : "text-embedding-3-small"}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+          </div>
           <button
             onClick={handleSaveLlm}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
@@ -263,6 +316,86 @@ export function SettingsPage() {
 
       {/* Backup Section */}
       <BackupSection />
+
+      {/* Update Section */}
+      <UpdateSection />
+    </div>
+  );
+}
+
+function UpdateSection() {
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [error, setError] = useState("");
+
+  const handleCheck = async () => {
+    setChecking(true);
+    setError("");
+    try {
+      const info = await checkForUpdate();
+      setUpdateInfo(info);
+    } catch (e: any) {
+      setError(e.toString());
+    }
+    setChecking(false);
+  };
+
+  const handleInstall = async () => {
+    setInstalling(true);
+    setError("");
+    setProgress("下载中...");
+    try {
+      await installUpdate((downloaded, total) => {
+        if (total) {
+          const pct = Math.round((downloaded / total) * 100);
+          setProgress(`下载中... ${pct}%`);
+        }
+      });
+    } catch (e: any) {
+      setError(e.toString());
+      setInstalling(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <h2 className="font-semibold text-gray-900 mb-3">软件更新</h2>
+      <div className="flex items-center gap-3 mb-3">
+        <button
+          onClick={handleCheck}
+          disabled={checking || installing}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50"
+        >
+          <RefreshCw size={14} className={checking ? "animate-spin" : ""} />
+          {checking ? "检查中..." : "检查更新"}
+        </button>
+        {updateInfo?.available && (
+          <button
+            onClick={handleInstall}
+            disabled={installing}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
+          >
+            <Download size={14} />
+            {installing ? progress : `安装 v${updateInfo.version}`}
+          </button>
+        )}
+      </div>
+      {updateInfo && !updateInfo.available && (
+        <p className="text-xs text-green-600">已是最新版本</p>
+      )}
+      {updateInfo?.available && (
+        <p className="text-xs text-gray-500">
+          新版本 v{updateInfo.version} 可用
+          {updateInfo.body && (
+            <span className="block mt-1 whitespace-pre-wrap text-gray-400">
+              {updateInfo.body.slice(0, 200)}
+            </span>
+          )}
+        </p>
+      )}
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   );
 }

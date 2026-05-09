@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { useChapterStore, useCanonStore, useAgentStore, useLlmStore, useProjectStore } from "../../stores";
+import { useChapterStore, useCanonStore, useAgentStore, useLlmStore, useProjectStore, useUiStore } from "../../stores";
 import { RichTextEditor } from "../common/RichTextEditor";
 import {
   FileText,
@@ -27,19 +27,29 @@ import {
   Brain,
   MoreHorizontal,
   Zap,
+  AlertCircle,
+  RotateCw,
+  Maximize2,
+  Minimize2,
+  Target,
 } from "lucide-react";
 import {
   compilerApi,
   chapterApi,
   orchestratorApi,
+  crashRecoveryApi,
   type CompileResult,
   type PipelineResult,
   type RecalledContext,
+  type CrashRecoveryInfo,
+  type ReviewConflict,
+  type ParagraphRewriteResult,
 } from "../../lib/api";
 import type { ChapterVersionInfo } from "../../lib/api";
 import { DiffViewer } from "../common/DiffViewer";
 import { ContextHelp } from "../common/ContextHelp";
 import { useWritingStats } from "../../hooks/useWritingStats";
+import { platform } from "../../lib/platform";
 
 const statusLabels: Record<string, { label: string; color: string }> = {
   task_ready: { label: "任务就绪", color: "bg-gray-100 text-gray-600" },
@@ -71,6 +81,7 @@ export function ChapterWorkbench() {
   const { rules, fetch: fetchCanon } = useCanonStore();
   const { runAgent, running: agentRunning } = useAgentStore();
   const { isStreaming, streamingText, chatStream, finishStreaming } = useLlmStore();
+  const { zenMode, exitZenMode, enterZenMode } = useUiStore();
 
   // AI Rewrite (WF-011~013)
   const [rewriting, setRewriting] = useState(false);
@@ -135,7 +146,10 @@ export function ChapterWorkbench() {
 
   const [draftText, setDraftText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [autoSaveTimer, setAutoSaveTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [crashRecoveries, setCrashRecoveries] = useState<CrashRecoveryInfo[]>([]);
+  const [lastSavedText, setLastSavedText] = useState("");
   const [taskExpanded, setTaskExpanded] = useState(true);
   const [compileExpanded, setCompileExpanded] = useState(false);
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
@@ -145,6 +159,7 @@ export function ChapterWorkbench() {
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [pipelineExpanded, setPipelineExpanded] = useState(false);
+  const [conflictResolutions, setConflictResolutions] = useState<Record<number, string>>({});
   const { validTransitions, transitionState, fetchValidTransitions, setCompileStatus } =
     useChapterStore();
 
@@ -157,6 +172,8 @@ export function ChapterWorkbench() {
   const [recalling, setRecalling] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreActionsRef = useRef<HTMLDivElement>(null);
+  const [rewritingParagraph, setRewritingParagraph] = useState<number | null>(null);
+  const [rewriteResult, setRewriteResult] = useState<ParagraphRewriteResult | null>(null);
 
   useEffect(() => {
     selectChapter(num);
@@ -172,28 +189,35 @@ export function ChapterWorkbench() {
   useEffect(() => {
     if (currentChapter?.draft_text) {
       setDraftText(currentChapter.draft_text);
+      setLastSavedText(currentChapter.draft_text);
+      setIsDirty(false);
     }
-  }, [currentChapter]);
+  }, [currentChapter?.id]); // Only reset when chapter ID changes, not every draft update
 
   const handleSave = useCallback(async () => {
     if (!draftText.trim()) return;
     setSaving(true);
-    await updateDraft(num, draftText);
+    await updateDraft(num, draftText); // manual save — creates version record
+    setLastSavedText(draftText);
+    setIsDirty(false);
     setSaving(false);
   }, [num, draftText, updateDraft]);
 
   const handleEditorChange = useCallback(
     (_html: string, text: string) => {
       setDraftText(text);
+      setIsDirty(text !== lastSavedText);
       if (autoSaveTimer) clearTimeout(autoSaveTimer);
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         if (text.trim()) {
-          updateDraft(num, text);
+          await updateDraft(num, text, true); // auto-save — skip version record
+          setLastSavedText(text);
+          setIsDirty(false);
         }
       }, 3000);
       setAutoSaveTimer(timer);
     },
-    [num, autoSaveTimer, updateDraft],
+    [num, autoSaveTimer, updateDraft, lastSavedText],
   );
 
   // Keyboard save shortcut listener
@@ -202,6 +226,52 @@ export function ChapterWorkbench() {
     window.addEventListener("save-current-chapter", handler);
     return () => window.removeEventListener("save-current-chapter", handler);
   }, [draftText, num, handleSave]);
+
+  // Esc to exit Zen Mode
+  useEffect(() => {
+    if (!zenMode) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") exitZenMode();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [zenMode, exitZenMode]);
+
+  // Window close handler — emergency save before quitting
+  useEffect(() => {
+    if (!platform.isTauri) return;
+    const unlisten = import("@tauri-apps/api/event").then(({ listen }) =>
+      listen("close-requested", async () => {
+        if (isDirty && draftText.trim()) {
+          await crashRecoveryApi.emergencySave(num, draftText);
+        }
+        // Now safe to exit
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().destroy();
+      }),
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [isDirty, draftText, num]);
+
+  // Browser beforeunload guard (for web mode)
+  useEffect(() => {
+    if (platform.isTauri) return; // Tauri handles close via event above
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty, platform.isTauri]);
+
+  // Check for crash recovery on mount
+  useEffect(() => {
+    if (!platform.isTauri) return;
+    crashRecoveryApi.check().then(setCrashRecoveries).catch(() => {});
+  }, []);
 
   // Click outside handler for "more actions" dropdown
   useEffect(() => {
@@ -434,6 +504,27 @@ ${soulText || "暂无"}`,
     setCompiling(false);
   };
 
+  const handleParagraphRewrite = async (paragraphIndex: number, message: string) => {
+    setRewritingParagraph(paragraphIndex);
+    setRewriteResult(null);
+    try {
+      const result = await compilerApi.rewriteParagraph(num, paragraphIndex, message);
+      setRewriteResult(result);
+      if (result.compile_score != null && compileResult) {
+        setCompileResult({ ...compileResult, score: result.compile_score });
+      }
+      // Reload chapter draft
+      const updated = await chapterApi.getChapter(num);
+      if (updated?.draft_text) {
+        setDraftText(updated.draft_text);
+        setLastSavedText(updated.draft_text);
+      }
+    } catch (e: any) {
+      console.error("Paragraph rewrite failed:", e);
+    }
+    setRewritingParagraph(null);
+  };
+
   const handleFetchVersions = useCallback(async () => {
     try {
       const { chapterApi } = await import("../../lib/tauri");
@@ -495,13 +586,51 @@ ${soulText || "暂无"}`,
     <div className="flex h-full">
       {/* Main editing area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
+        {/* Zen Mode: minimal floating bar */}
+        {zenMode ? (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 bg-white/90 backdrop-blur rounded-full shadow-lg border border-gray-200 text-sm">
+            <span className="text-gray-700 font-medium">第{num}章</span>
+            <span className="text-gray-400">|</span>
+            <span className="text-gray-600">{wordCount} 字</span>
+            {project?.target_words && (
+              <>
+                <span className="text-gray-400">|</span>
+                <span className="text-gray-500">
+                  {Math.round((wordCount / project.target_words) * 100)}%
+                </span>
+              </>
+            )}
+            <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-indigo-500 rounded-full transition-all"
+                style={{ width: `${Math.min(100, project?.target_words ? (wordCount / project.target_words) * 100 : 0)}%` }}
+              />
+            </div>
+            {sessionActive && (
+              <span className="text-xs text-green-600 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                写作中
+              </span>
+            )}
+            <button
+              onClick={exitZenMode}
+              className="flex items-center gap-1 text-gray-400 hover:text-gray-700 ml-2"
+              title="退出专注模式 (Esc)"
+            >
+              <Minimize2 size={14} />
+            </button>
+          </div>
+        ) : (
+        /* Top bar */
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 bg-white shrink-0">
           <div className="flex items-center gap-3">
             <FileText size={18} className="text-indigo-600" />
             <h2 className="font-semibold text-gray-900">
               第{num}章 {currentChapter?.title || ""}
             </h2>
+            {isDirty && (
+              <span className="w-2 h-2 bg-amber-500 rounded-full" title="有未保存的更改" />
+            )}
             <span
               className={`text-xs px-2 py-0.5 rounded-full ${statusInfo?.color || "bg-gray-100"}`}
             >
@@ -521,6 +650,15 @@ ${soulText || "暂无"}`,
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">{wordCount} 字</span>
+            {isDirty && (
+              <span className="text-xs text-amber-600">未保存</span>
+            )}
+            {saving && (
+              <span className="text-xs text-blue-500">保存中...</span>
+            )}
+            {!isDirty && !saving && draftText.trim() && (
+              <span className="text-xs text-green-600">已保存</span>
+            )}
             {/* Writing session indicator */}
             <div className="flex items-center gap-2 text-xs text-gray-400">
               {sessionActive ? (
@@ -615,6 +753,14 @@ ${soulText || "暂无"}`,
               <Save size={14} />
               <span className="hidden sm:inline">{saving ? "保存中..." : "保存"}</span>
             </button>
+            <button
+              onClick={enterZenMode}
+              className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm hover:bg-indigo-100"
+              title="专注模式"
+            >
+              <Maximize2 size={14} />
+              <span className="hidden sm:inline">专注</span>
+            </button>
             {currentChapter?.status !== "finalized" && currentChapter?.status !== "archived" && (
               <button
                 onClick={handleFinalize}
@@ -648,8 +794,10 @@ ${soulText || "暂无"}`,
             )}
           </div>
         </div>
+        )}
 
-        {/* Task Card Panel (collapsible) */}
+        {/* Task Card Panel (collapsible) — hidden in Zen Mode */}
+        {!zenMode && (
         <div className="border-b border-gray-200 bg-amber-50 shrink-0">
           <button
             onClick={() => setTaskExpanded(!taskExpanded)}
@@ -723,8 +871,10 @@ ${soulText || "暂无"}`,
             </div>
           )}
         </div>
+        )}
 
-        {/* AI Action bar */}
+        {/* AI Action bar — hidden in Zen Mode */}
+        {!zenMode && (
         <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 border-b border-gray-100 bg-gray-50 shrink-0 flex-wrap">
           <button
             onClick={handleRunPipeline}
@@ -862,9 +1012,10 @@ ${soulText || "暂无"}`,
             )}
           </div>
         </div>
+        )}
 
         {/* Editor */}
-        <div className="flex-1 overflow-hidden">
+        <div className={`flex-1 overflow-hidden ${zenMode ? "pt-16" : ""}`}>
           <RichTextEditor
             content={isStreaming ? streamingText : draftText}
             onChange={handleEditorChange}
@@ -872,8 +1023,8 @@ ${soulText || "暂无"}`,
           />
         </div>
 
-        {/* Compile result panel (collapsible) */}
-        {compileExpanded && (
+        {/* Bottom panels — hidden in Zen Mode */}
+        {!zenMode && compileExpanded && (
           <div className="border-t border-gray-200 bg-gray-50 max-h-64 overflow-auto shrink-0">
             <div className="flex items-center justify-between px-6 py-2 sticky top-0 bg-gray-50">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -921,10 +1072,42 @@ ${soulText || "暂无"}`,
                               : "bg-blue-50 text-blue-800"
                         }`}
                       >
-                        <span className="font-medium">[{issue.checker}]</span> {issue.message}
-                        {issue.detail && <p className="mt-0.5 opacity-75">{issue.detail}</p>}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1">
+                            <span className="font-medium">[{issue.checker}]</span> {issue.message}
+                            {issue.detail && <p className="mt-0.5 opacity-75">{issue.detail}</p>}
+                          </div>
+                          {issue.paragraph_index != null && (
+                            <button
+                              onClick={() => handleParagraphRewrite(issue.paragraph_index!, issue.message)}
+                              disabled={rewritingParagraph === issue.paragraph_index}
+                              className="shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-white/80 hover:bg-white border border-current/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="AI修复此段落"
+                            >
+                              {rewritingParagraph === issue.paragraph_index ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Wand2 className="w-3 h-3" />
+                              )}
+                              修复
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* Rewrite result feedback */}
+                {rewriteResult && (
+                  <div className="text-xs p-2 rounded bg-green-50 text-green-800">
+                    <span className="font-medium">段落修复完成</span> 第{rewriteResult.paragraph_index + 1}段
+                    {rewriteResult.compile_score != null && (
+                      <span className="ml-2">编译评分: {rewriteResult.compile_score}</span>
+                    )}
+                    <button
+                      onClick={() => setRewriteResult(null)}
+                      className="ml-2 text-green-600 hover:text-green-800"
+                    >×</button>
                   </div>
                 )}
                 {/* Stats */}
@@ -958,10 +1141,10 @@ ${soulText || "暂无"}`,
           </div>
         )}
 
-        {/* Pipeline result panel (collapsible) — UI-056 */}
-        {pipelineExpanded && pipelineResult && (
-          <div className="border-t border-gray-200 bg-gray-50 max-h-80 overflow-auto shrink-0">
-            <div className="flex items-center justify-between px-6 py-2 sticky top-0 bg-gray-50">
+        {/* Pipeline result panel (collapsible) — hidden in Zen Mode */}
+        {!zenMode && pipelineExpanded && pipelineResult && (
+          <div className="border-t border-gray-200 bg-gray-50 max-h-96 overflow-auto shrink-0">
+            <div className="flex items-center justify-between px-6 py-2 sticky top-0 bg-gray-50 z-10">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <Wand2 size={14} />
                 全链路生产
@@ -984,6 +1167,11 @@ ${soulText || "暂无"}`,
                     编译 {pipelineResult.compiler_score}分
                   </span>
                 )}
+                {pipelineResult.conflict_matrix && pipelineResult.conflict_matrix.conflicts.length > 0 && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">
+                    {pipelineResult.conflict_matrix.conflicts.length}项冲突
+                  </span>
+                )}
                 <span className="text-xs text-gray-400">
                   {(pipelineResult.total_duration_ms / 1000).toFixed(1)}s
                 </span>
@@ -995,6 +1183,102 @@ ${soulText || "暂无"}`,
                 <ChevronDown size={14} />
               </button>
             </div>
+
+            {/* Expert score bar — when conflict_matrix exists */}
+            {pipelineResult.conflict_matrix && pipelineResult.conflict_matrix.expert_scores.length > 0 && (
+              <div className="px-6 pb-2">
+                <div className="flex items-center gap-1 text-xs">
+                  {pipelineResult.conflict_matrix.expert_scores.map(([name, score], i) => {
+                    const shortName: Record<string, string> = {
+                      plot_expert: "情节", character_expert: "角色", pacing_expert: "节奏",
+                      worldbuilding_expert: "世界观", prose_expert: "文笔", commercial_expert: "商业",
+                      reader_panel: "读者", voice_audit: "AI审计",
+                    };
+                    return (
+                      <div key={i} className="flex flex-col items-center" title={`${name}: ${score}分`}>
+                        <div
+                          className={`w-7 rounded-sm ${score >= 8 ? "bg-green-400" : score >= 6 ? "bg-yellow-400" : "bg-red-400"}`}
+                          style={{ height: `${Math.max(score * 3, 6)}px` }}
+                        />
+                        <span className="text-gray-500 mt-0.5" style={{ fontSize: 9 }}>{shortName[name] || name}</span>
+                        <span className="text-gray-400" style={{ fontSize: 9 }}>{score}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Conflict arbitration — when conflicts exist */}
+            {pipelineResult.conflict_matrix && pipelineResult.conflict_matrix.conflicts.length > 0 && (
+              <div className="px-6 pb-2">
+                <div className="text-xs font-medium text-orange-700 mb-1 flex items-center gap-1">
+                  <AlertCircle size={12} />
+                  专家冲突仲裁
+                </div>
+                <div className="space-y-1.5">
+                  {pipelineResult.conflict_matrix.conflicts.map((conflict, ci) => (
+                    <div key={ci} className="bg-white border border-gray-200 rounded p-2 text-xs">
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className={`px-1 rounded text-white ${
+                          conflict.severity === "high" ? "bg-red-500" : conflict.severity === "medium" ? "bg-orange-400" : "bg-yellow-400"
+                        }`}>
+                          {conflict.severity === "high" ? "高" : conflict.severity === "medium" ? "中" : "低"}
+                        </span>
+                        <span className="font-medium text-gray-700">{conflict.topic}</span>
+                      </div>
+                      <div className="flex items-start gap-2 mb-1.5">
+                        <div className="flex-1 bg-blue-50 rounded px-1.5 py-1">
+                          <span className="text-blue-600 font-medium">{conflict.expert_a}:</span>{" "}
+                          <span className="text-gray-600">{conflict.position_a}</span>
+                        </div>
+                        <span className="text-gray-400 self-center">vs</span>
+                        <div className="flex-1 bg-purple-50 rounded px-1.5 py-1">
+                          <span className="text-purple-600 font-medium">{conflict.expert_b}:</span>{" "}
+                          <span className="text-gray-600">{conflict.position_b}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setConflictResolutions(prev => ({ ...prev, [ci]: "favor_a" }))}
+                          className={`px-2 py-0.5 rounded text-xs ${
+                            conflictResolutions[ci] === "favor_a"
+                              ? "bg-blue-500 text-white"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          采纳{conflict.expert_a}
+                        </button>
+                        <button
+                          onClick={() => setConflictResolutions(prev => ({ ...prev, [ci]: "favor_b" }))}
+                          className={`px-2 py-0.5 rounded text-xs ${
+                            conflictResolutions[ci] === "favor_b"
+                              ? "bg-purple-500 text-white"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          采纳{conflict.expert_b}
+                        </button>
+                        <button
+                          onClick={() => setConflictResolutions(prev => ({ ...prev, [ci]: "ignore" }))}
+                          className={`px-2 py-0.5 rounded text-xs ${
+                            conflictResolutions[ci] === "ignore"
+                              ? "bg-gray-500 text-white"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          忽略
+                        </button>
+                        {!conflictResolutions[ci] && (
+                          <span className="text-gray-400 ml-1">待裁决</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="px-6 pb-3 space-y-1">
               {pipelineResult.steps.map((step, i) => (
                 <div
@@ -1048,8 +1332,8 @@ ${soulText || "暂无"}`,
           </div>
         )}
 
-        {/* Version history panel (collapsible) */}
-        {historyExpanded && (
+        {/* Version history panel (collapsible) — hidden in Zen Mode */}
+        {!zenMode && historyExpanded && (
           <div className="border-t border-gray-200 bg-gray-50 shrink-0">
             <div className="flex items-center justify-between px-6 py-2">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -1131,8 +1415,8 @@ ${soulText || "暂无"}`,
             )}
           </div>
         )}
-        {/* Recall Context panel (collapsible) */}
-        {recallExpanded && (
+        {/* Recall Context panel (collapsible) — hidden in Zen Mode */}
+        {!zenMode && recallExpanded && (
           <div className="border-t border-gray-200 bg-teal-50 shrink-0">
             <div className="flex items-center justify-between px-6 py-2 sticky top-0 bg-teal-50">
               <span className="flex items-center gap-2 text-sm font-medium text-teal-800">
@@ -1236,7 +1520,8 @@ ${soulText || "暂无"}`,
         )}
       </div>
 
-      {/* Right sidebar: Canon + Characters */}
+      {/* Right sidebar: Canon + Characters — hidden in Zen Mode */}
+      {!zenMode && (
       <div className="w-72 border-l border-gray-200 bg-white overflow-auto shrink-0">
         <div className="p-4 border-b border-gray-100">
           <h3 className="font-medium text-gray-900 text-sm flex items-center gap-2">
@@ -1278,6 +1563,61 @@ ${soulText || "暂无"}`,
           </div>
         </div>
       </div>
+      )}
+
+      {/* Crash Recovery Dialog */}
+      {crashRecoveries.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                <AlertCircle size={20} className="text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">检测到未保存的草稿</h3>
+                <p className="text-sm text-gray-500">上次退出时可能有未保存的内容</p>
+              </div>
+            </div>
+            <div className="space-y-2 mb-5">
+              {crashRecoveries.map((r) => (
+                <div key={r.chapter_number} className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg">
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">第{r.chapter_number}章</span>
+                    <span className="text-xs text-gray-500 ml-2">{r.draft_length} 字</span>
+                  </div>
+                  <span className="text-xs text-gray-400">{new Date(r.saved_at).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  for (const r of crashRecoveries) {
+                    await crashRecoveryApi.restore(r.chapter_number);
+                  }
+                  setCrashRecoveries([]);
+                  // Reload current chapter
+                  selectChapter(num);
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+              >
+                <RotateCw size={14} /> 恢复草稿
+              </button>
+              <button
+                onClick={async () => {
+                  for (const r of crashRecoveries) {
+                    await crashRecoveryApi.discard(r.chapter_number);
+                  }
+                  setCrashRecoveries([]);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                丢弃
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

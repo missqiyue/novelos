@@ -1,4 +1,5 @@
 use crate::agent_io::{self, AgentInput, AgentOutput};
+use futures::StreamExt;
 use crate::commands::agent::{log_agent_execution, run_agent};
 use crate::commands::compiler;
 use crate::commands::ledger::notify_pipeline_event;
@@ -7,6 +8,7 @@ use crate::compiler as compiler_mod;
 use crate::db::DbState;
 use crate::commands::llm::LlmState;
 use crate::orchestrator;
+use crate::rag::RagIntentFilter;
 use std::collections::HashMap;
 use std::time::Instant;
 use tauri::State;
@@ -43,12 +45,9 @@ async fn run_step(
 
 /// Send a pipeline event notification (NTF-005)
 fn send_pipeline_notif(db: &State<'_, DbState>, step_name: &str, status: &str, duration_ms: u64) {
-    let project_conn = match db.project.lock() {
+    let project_conn = match db.lock_project() {
         Ok(guard) => guard,
-        Err(e) => {
-            let guard = e.into_inner();
-            guard // Use poisoned guard — best effort
-        }
+        Err(_) => return, // Project DB unavailable, skip notification
     };
     if let Some(ref conn) = *project_conn {
         let project_id = db.current_project_id().unwrap_or_default();
@@ -107,7 +106,7 @@ pub async fn run_chapter_pipeline(
     let mut compile_blocked = false;
 
     // ─── Pre-assemble recall context using the recall system ───
-    let (genre, lt, volume_ctx, chapter_outlines_ctx, soul_refs, relationship_states_ctx, style_guide, de_ai_rules_ctx) = {
+    let (genre, lt, volume_ctx, chapter_outlines_ctx, soul_refs, relationship_states_ctx, style_guide, de_ai_rules_ctx, writing_patterns_ctx, intent_filter) = {
         let project_conn = db.project.lock().map_err(|e| e.to_string())?;
         let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -123,6 +122,46 @@ pub async fn run_chapter_pipeline(
         let relationship_states_ctx = recall::fetch_relationship_states(conn);
         let style_guide = recall::fetch_style_guide(conn);
         let de_ai_rules_ctx = recall::fetch_de_ai_rules_summary(conn);
+
+        // Fetch writing patterns from global DB, filtered by project genre
+        let writing_patterns_ctx = {
+            let global_conn = db.global.lock().map_err(|e| e.to_string())?;
+            let genre_str = if genre.is_empty() || genre == "未设定" { None } else { Some(genre.as_str()) };
+            recall::fetch_writing_patterns(&global_conn, genre_str)
+        };
+
+        // Extract character names from character_states text for RAG intent boosting
+        let character_names: Vec<String> = character_states
+            .lines()
+            .skip(1) // skip header "【角色状态】"
+            .filter_map(|line| {
+                line.trim().strip_prefix("- ").and_then(|rest| {
+                    rest.split_whitespace().next().map(|s| s.to_string())
+                })
+            })
+            .collect();
+
+        // Extract foreshadow titles for RAG intent boosting
+        let active_foreshadows: Vec<String> = foreshadows
+            .lines()
+            .filter(|line| line.contains("「") && line.contains("」"))
+            .filter_map(|line| {
+                let start = line.find("「")?;
+                let end = line.find("」")?;
+                Some(line[start + 3..end].to_string())
+            })
+            .collect();
+
+        let intent_filter = if !character_names.is_empty() || !active_foreshadows.is_empty() {
+            Some(RagIntentFilter {
+                character_names: if character_names.is_empty() { None } else { Some(character_names) },
+                pov_character: None,
+                active_foreshadows: if active_foreshadows.is_empty() { None } else { Some(active_foreshadows) },
+                chapter_range: None,
+            })
+        } else {
+            None
+        };
 
         // Combine hard+soft rules for canon_rules variable
         let canon_rules = if hard_rules.is_empty() && soft_rules.is_empty() {
@@ -143,10 +182,11 @@ pub async fn run_chapter_pipeline(
             foreshadows_events: foreshadows.clone(),
             soft_rules: soft_rules.clone(),
             canon_rules,  // combined
+            writing_patterns: writing_patterns_ctx.clone(),
             ..Default::default()
         };
 
-        (genre, lt, volume_ctx, chapter_outlines_ctx, soul_refs, relationship_states_ctx, style_guide, de_ai_rules_ctx)
+        (genre, lt, volume_ctx, chapter_outlines_ctx, soul_refs, relationship_states_ctx, style_guide, de_ai_rules_ctx, writing_patterns_ctx, intent_filter)
     };
 
     // Helper closures for fallback: use real data if available, else placeholder
@@ -194,6 +234,15 @@ pub async fn run_chapter_pipeline(
         vars.insert("character_states".to_string(), char_states_text(&lt));
         vars.insert("prev_summaries".to_string(), snapshot_text(&lt));
         vars.insert("open_foreshadows".to_string(), foreshadows_text(&lt));
+        // Pass intent filter info for RAG-boosted recall
+        if let Some(ref filter) = intent_filter {
+            if let Some(ref names) = filter.character_names {
+                vars.insert("intent_characters".to_string(), names.join(","));
+            }
+            if let Some(ref fs) = filter.active_foreshadows {
+                vars.insert("intent_foreshadows".to_string(), fs.join(","));
+            }
+        }
         let dur = run_step(&mut steps, &mut outputs, 1, "recall_agent", vars, llm_state.clone(), db.clone()).await;
         send_pipeline_notif(&db, &steps[1].name, &steps[1].status, dur);
         log_agent_io_step(
@@ -232,6 +281,7 @@ pub async fn run_chapter_pipeline(
         vars.insert("min_words".to_string(), "2000".to_string());
         vars.insert("max_words".to_string(), "4000".to_string());
         vars.insert("soul_refs".to_string(), soul_refs_text());
+        vars.insert("writing_patterns".to_string(), if !writing_patterns_ctx.is_empty() { writing_patterns_ctx.clone() } else { String::new() });
         let dur = run_step(&mut steps, &mut outputs, 3, "draft_writer", vars, llm_state.clone(), db.clone()).await;
         send_pipeline_notif(&db, &steps[3].name, &steps[3].status, dur);
         log_agent_io_step(
@@ -462,7 +512,12 @@ pub async fn run_chapter_pipeline(
         }
     }
 
-    // Step 15: Review Chair
+    // Step 15: Review Chair (with conflict context)
+    let conflict_matrix = {
+        let expert_outputs: Vec<Option<String>> = outputs[6..14].to_vec();
+        orchestrator::detect_review_conflicts(&expert_outputs)
+    };
+
     {
         let expert_reports: Vec<String> = outputs[6..14].iter()
             .enumerate()
@@ -475,6 +530,12 @@ pub async fn run_chapter_pipeline(
         let mut vars = HashMap::new();
         vars.insert("chapter_number".to_string(), chapter_number.to_string());
         vars.insert("expert_reports".to_string(), expert_reports.join("\n\n---\n\n"));
+        if !conflict_matrix.conflicts.is_empty() {
+            let conflict_summary: Vec<String> = conflict_matrix.conflicts.iter()
+                .map(|c| format!("- [{}] {}", c.severity, c.topic))
+                .collect();
+            vars.insert("detected_conflicts".to_string(), format!("以下专家评审存在冲突，请在终审时特别注意：\n{}", conflict_summary.join("\n")));
+        }
         let dur = run_step(&mut steps, &mut outputs, 14, "review_chair", vars, llm_state.clone(), db.clone()).await;
         send_pipeline_notif(&db, &steps[14].name, &steps[14].status, dur);
         log_agent_io_step(
@@ -499,10 +560,19 @@ pub async fn run_chapter_pipeline(
         review_score,
         steps,
         total_duration_ms,
+        conflict_matrix: Some(conflict_matrix),
     })
 }
 
-/// Batch chapter generation (WF-014) — run pipeline for multiple chapters
+/// Batch chapter generation (WF-014) — run pipeline for multiple chapters.
+///
+/// Uses a concurrency window of `max_concurrent` chapters running in parallel.
+/// Default concurrency is 1 (serial). Set to 2-3 for parallel generation,
+/// but note this increases LLM API rate — may hit 429 limits.
+///
+/// Chapter dependency: each chapter must complete before the next one starts
+/// when concurrency is 1. With concurrency > 1, chapters may overlap but
+/// earlier chapters are prioritized in the queue.
 #[tauri::command]
 pub async fn run_batch_pipeline(
     db: State<'_, DbState>,
@@ -510,10 +580,54 @@ pub async fn run_batch_pipeline(
     start_chapter: i64,
     end_chapter: i64,
 ) -> Result<Vec<orchestrator::PipelineResult>, String> {
-    let mut results = Vec::new();
-    for chapter_number in start_chapter..=end_chapter {
-        let result = run_chapter_pipeline(db.clone(), llm_state.clone(), chapter_number).await?;
-        results.push(result);
+    run_batch_pipeline_with_concurrency(db, llm_state, start_chapter, end_chapter, 1).await
+}
+
+/// Batch pipeline with configurable concurrency.
+#[tauri::command]
+pub async fn run_batch_pipeline_concurrent(
+    db: State<'_, DbState>,
+    llm_state: State<'_, LlmState>,
+    start_chapter: i64,
+    end_chapter: i64,
+    max_concurrent: usize,
+) -> Result<Vec<orchestrator::PipelineResult>, String> {
+    let concurrency = max_concurrent.max(1).min(5);
+    run_batch_pipeline_with_concurrency(db, llm_state, start_chapter, end_chapter, concurrency).await
+}
+
+async fn run_batch_pipeline_with_concurrency(
+    db: State<'_, DbState>,
+    llm_state: State<'_, LlmState>,
+    start_chapter: i64,
+    end_chapter: i64,
+    max_concurrent: usize,
+) -> Result<Vec<orchestrator::PipelineResult>, String> {
+    let chapter_numbers: Vec<i64> = (start_chapter..=end_chapter).collect();
+    let total = chapter_numbers.len();
+
+    if max_concurrent <= 1 {
+        // Serial execution (original behavior)
+        let mut results = Vec::with_capacity(total);
+        for chapter_number in chapter_numbers {
+            let result = run_chapter_pipeline(db.clone(), llm_state.clone(), chapter_number).await?;
+            results.push(result);
+        }
+        return Ok(results);
     }
-    Ok(results)
+
+    // Concurrent execution using futures::stream::buffered
+    let futures_stream = futures::stream::iter(chapter_numbers.into_iter().map(|chapter_number| {
+        let db = db.clone();
+        let llm_state = llm_state.clone();
+        async move {
+            run_chapter_pipeline(db, llm_state, chapter_number).await
+        }
+    }))
+    .buffered(max_concurrent);
+
+    let results: Vec<Result<orchestrator::PipelineResult, String>> = futures_stream.collect().await;
+
+    // Collect in order (buffered preserves order)
+    results.into_iter().collect()
 }

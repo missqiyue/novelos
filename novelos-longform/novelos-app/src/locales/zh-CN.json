@@ -1,0 +1,77 @@
+{
+  "app": {
+    "title": "NovelOS 长篇模式",
+    "loading": "加载中..."
+  },
+  "bookshelf": {
+    "title": "书架",
+    "empty": "还没有作品，开始创作吧",
+    "add": "新建作品",
+    "open": "打开",
+    "delete": "删除",
+    "deleteConfirm": "确定删除这部作品吗？此操作不可恢复。"
+  },
+  "chapter": {
+    "workbench": "章节工作台",
+    "draft": "草稿",
+    "finalized": "已定稿",
+    "archived": "已归档",
+    "compile": "编译",
+    "compilePass": "编译通过",
+    "compileFail": "编译失败",
+    "startPipeline": "启动流水线",
+    "status": {
+      "task_ready": "任务就绪",
+      "draft_generated": "草稿已生成",
+      "compile_failed": "编译失败",
+      "review_pending": "待评审",
+      "rewrite_required": "需重写",
+      "approved": "已通过",
+      "archived": "已归档",
+      "needs_human": "需人工",
+      "needs_revalidate": "需重验证"
+    }
+  },
+  "compiler": {
+    "title": "连贯性编译",
+    "score": "评分",
+    "pass": "通过",
+    "fail": "不通过",
+    "warning": "警告",
+    "issues": "问题",
+    "suggestions": "建议"
+  },
+  "pipeline": {
+    "title": "生产流水线",
+    "running": "运行中",
+    "completed": "已完成",
+    "failed": "失败",
+    "batch": "批量生成",
+    "concurrency": "并发数"
+  },
+  "settings": {
+    "title": "设置",
+    "llm": "LLM 配置",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "输入 API Key",
+    "model": "模型",
+    "provider": "提供商",
+    "temperature": "温度",
+    "maxTokens": "最大 Token",
+    "saved": "设置已保存"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "retry": "重试",
+    "refresh": "刷新",
+    "search": "搜索",
+    "noData": "暂无数据",
+    "error": "出错了",
+    "success": "操作成功"
+  }
+}

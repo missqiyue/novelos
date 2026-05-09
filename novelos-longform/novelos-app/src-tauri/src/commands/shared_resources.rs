@@ -182,6 +182,52 @@ pub fn delete_style_profile(db: State<'_, DbState>, id: String) -> Result<(), St
     Ok(())
 }
 
+/// Upsert a writing pattern in the global DB.
+#[tauri::command]
+pub fn upsert_writing_pattern(db: State<'_, DbState>, input: UpsertWritingPatternInput) -> Result<WritingPatternInfo, String> {
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let existing: Option<String> = conn
+        .query_row("SELECT id FROM writing_patterns WHERE id = ?1", [&id], |r| r.get(0))
+        .ok();
+
+    if existing.is_some() {
+        conn.execute(
+            "UPDATE writing_patterns SET source_type=?1, source_ref=?2, pattern_name=?3, genre_compat=?4, description=?5, usage_guide=?6, sample_text=?7 WHERE id=?8",
+            rusqlite::params![input.source_type, input.source_ref, input.pattern_name, input.genre_compat, input.description, input.usage_guide, input.sample_text, id],
+        ).map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "INSERT INTO writing_patterns (id, source_type, source_ref, pattern_name, genre_compat, description, usage_guide, sample_text, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            rusqlite::params![id, input.source_type, input.source_ref, input.pattern_name, input.genre_compat, input.description, input.usage_guide, input.sample_text, now],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    conn.query_row(
+        "SELECT id, source_type, source_ref, pattern_name, genre_compat, description, usage_guide, sample_text, created_at FROM writing_patterns WHERE id = ?1",
+        [&id],
+        |row| Ok(WritingPatternInfo {
+            id: row.get(0)?, source_type: row.get(1)?, source_ref: row.get(2)?,
+            pattern_name: row.get(3)?, genre_compat: row.get(4)?, description: row.get(5)?,
+            usage_guide: row.get(6)?, sample_text: row.get(7)?, created_at: row.get(8)?,
+        }),
+    ).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpsertWritingPatternInput {
+    pub id: Option<String>,
+    pub source_type: String,
+    pub source_ref: Option<String>,
+    pub pattern_name: String,
+    pub genre_compat: Option<String>,
+    pub description: String,
+    pub usage_guide: Option<String>,
+    pub sample_text: Option<String>,
+}
+
 // ─── Apply-to-Project commands (SHF-005 core) ───
 
 /// Apply a genre template's settings to the current project.

@@ -75,7 +75,7 @@ pub async fn run_agent(
     agent_name: String,
     variables: HashMap<String, String>,
 ) -> Result<AgentRunResult, String> {
-    let (system_prompt, user_template) = get_agent_prompts(&agent_name)?;
+    let (system_prompt, user_template) = get_prompts_with_db_fallback(&db, &agent_name)?;
 
     let mut user_prompt = user_template.to_string();
     for (key, value) in &variables {
@@ -132,7 +132,14 @@ pub async fn run_agent(
     }
 }
 
-fn get_agent_prompts(name: &str) -> Result<(&'static str, &'static str), String> {
+fn get_agent_prompts(name: &str) -> Result<(String, String), String> {
+    // Get hardcoded defaults
+    let (default_system, default_user) = get_default_prompts(name)?;
+    Ok((default_system.to_string(), default_user.to_string()))
+}
+
+/// Get hardcoded default prompts for an agent.
+fn get_default_prompts(name: &str) -> Result<(&'static str, &'static str), String> {
     match name {
         "genre_match" => Ok((agents::genre_match::SYSTEM, agents::genre_match::USER_TEMPLATE)),
         "volume_outline" => Ok((agents::volume_outline::SYSTEM, agents::volume_outline::USER_TEMPLATE)),
@@ -146,15 +153,15 @@ fn get_agent_prompts(name: &str) -> Result<(&'static str, &'static str), String>
         "task_card" => Ok((agents::task_card::SYSTEM, agents::task_card::USER_TEMPLATE)),
         "arc_planner" => Ok((agents::arc_planner::SYSTEM, agents::arc_planner::USER_TEMPLATE)),
         "chapter_outline" => Ok((agents::chapter_outline::SYSTEM, agents::chapter_outline::USER_TEMPLATE)),
-        "plot_expert" => Ok((agents::plot_expert::SYSTEM, agents::plot_expert::USER_TEMPLATE)),
-        "character_expert" => Ok((agents::character_expert::SYSTEM, agents::character_expert::USER_TEMPLATE)),
-        "pacing_expert" => Ok((agents::pacing_expert::SYSTEM, agents::pacing_expert::USER_TEMPLATE)),
-        "worldbuilding_expert" => Ok((agents::worldbuilding_expert::SYSTEM, agents::worldbuilding_expert::USER_TEMPLATE)),
-        "prose_expert" => Ok((agents::prose_expert::SYSTEM, agents::prose_expert::USER_TEMPLATE)),
-        "commercial_expert" => Ok((agents::commercial_expert::SYSTEM, agents::commercial_expert::USER_TEMPLATE)),
-        "reader_panel" => Ok((agents::reader_panel::SYSTEM, agents::reader_panel::USER_TEMPLATE)),
-        "voice_audit" => Ok((agents::voice_audit::SYSTEM, agents::voice_audit::USER_TEMPLATE)),
-        "review_chair" => Ok((agents::review_chair::SYSTEM, agents::review_chair::USER_TEMPLATE)),
+        "plot_expert" => Ok((agents::experts::plot_expert::SYSTEM, agents::experts::plot_expert::USER_TEMPLATE)),
+        "character_expert" => Ok((agents::experts::character_expert::SYSTEM, agents::experts::character_expert::USER_TEMPLATE)),
+        "pacing_expert" => Ok((agents::experts::pacing_expert::SYSTEM, agents::experts::pacing_expert::USER_TEMPLATE)),
+        "worldbuilding_expert" => Ok((agents::experts::worldbuilding_expert::SYSTEM, agents::experts::worldbuilding_expert::USER_TEMPLATE)),
+        "prose_expert" => Ok((agents::experts::prose_expert::SYSTEM, agents::experts::prose_expert::USER_TEMPLATE)),
+        "commercial_expert" => Ok((agents::experts::commercial_expert::SYSTEM, agents::experts::commercial_expert::USER_TEMPLATE)),
+        "reader_panel" => Ok((agents::experts::reader_panel::SYSTEM, agents::experts::reader_panel::USER_TEMPLATE)),
+        "voice_audit" => Ok((agents::experts::voice_audit::SYSTEM, agents::experts::voice_audit::USER_TEMPLATE)),
+        "review_chair" => Ok((agents::experts::review_chair::SYSTEM, agents::experts::review_chair::USER_TEMPLATE)),
         "recall_agent" => Ok((agents::recall_agent::SYSTEM, agents::recall_agent::USER_TEMPLATE)),
         "continuity_analyst" => Ok((agents::continuity_analyst::SYSTEM, agents::continuity_analyst::USER_TEMPLATE)),
         "rewrite_agent" => Ok((agents::rewrite_agent::SYSTEM, agents::rewrite_agent::USER_TEMPLATE)),
@@ -261,4 +268,121 @@ pub struct AgentLogEntry {
     pub token_usage: Option<i64>,
     pub error_message: Option<String>,
     pub created_at: String,
+}
+
+/// Get agent prompts with database override support.
+/// Checks the global DB for a custom prompt first; falls back to hardcoded defaults.
+fn get_prompts_with_db_fallback(db: &DbState, agent_name: &str) -> Result<(String, String), String> {
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    let result = conn.query_row(
+        "SELECT system_prompt, user_template FROM agent_prompts WHERE agent_name = ?1",
+        [agent_name],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    );
+
+    match result {
+        Ok((system, user)) => Ok((system, user)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            // No custom prompt — use hardcoded defaults
+            let (sys, usr) = get_default_prompts(agent_name)?;
+            Ok((sys.to_string(), usr.to_string()))
+        }
+        Err(e) => {
+            log::warn!("Failed to query agent_prompts for '{}': {}", agent_name, e);
+            let (sys, usr) = get_default_prompts(agent_name)?;
+            Ok((sys.to_string(), usr.to_string()))
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentPromptInfo {
+    pub agent_name: String,
+    pub system_prompt: String,
+    pub user_template: String,
+    pub is_custom: bool,
+}
+
+/// List all agent prompts (custom from DB + defaults for agents without DB entries).
+#[tauri::command]
+pub fn list_agent_prompts(db: State<'_, DbState>) -> Result<Vec<AgentPromptInfo>, String> {
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+
+    let mut custom_prompts: HashMap<String, (String, String, bool)> = HashMap::new();
+    let mut stmt = conn.prepare("SELECT agent_name, system_prompt, user_template, is_custom FROM agent_prompts")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, bool>(3)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+
+    for row in rows {
+        let (name, system, user, is_custom) = row.map_err(|e| e.to_string())?;
+        custom_prompts.insert(name, (system, user, is_custom));
+    }
+
+    let mut results = Vec::new();
+    for (name, _desc) in AGENT_LIST {
+        if let Some((system, user, is_custom)) = custom_prompts.get(*name) {
+            results.push(AgentPromptInfo {
+                agent_name: name.to_string(),
+                system_prompt: system.clone(),
+                user_template: user.clone(),
+                is_custom: *is_custom,
+            });
+        } else {
+            let (sys, usr) = get_default_prompts(name)?;
+            results.push(AgentPromptInfo {
+                agent_name: name.to_string(),
+                system_prompt: sys.to_string(),
+                user_template: usr.to_string(),
+                is_custom: false,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+/// Get a single agent's prompt (DB override or default).
+#[tauri::command]
+pub fn get_agent_prompt(db: State<'_, DbState>, agent_name: String) -> Result<AgentPromptInfo, String> {
+    let (system, user) = get_prompts_with_db_fallback(&db, &agent_name)?;
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    let is_custom = conn.query_row(
+        "SELECT is_custom FROM agent_prompts WHERE agent_name = ?1",
+        [&agent_name],
+        |row| row.get::<_, bool>(0),
+    ).unwrap_or(false);
+
+    Ok(AgentPromptInfo {
+        agent_name,
+        system_prompt: system,
+        user_template: user,
+        is_custom,
+    })
+}
+
+/// Save a custom agent prompt to the database.
+#[tauri::command]
+pub fn save_agent_prompt(db: State<'_, DbState>, agent_name: String, system_prompt: String, user_template: String) -> Result<(), String> {
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO agent_prompts (agent_name, system_prompt, user_template, is_custom, updated_at) VALUES (?1, ?2, ?3, 1, datetime('now')) ON CONFLICT(agent_name) DO UPDATE SET system_prompt = ?2, user_template = ?3, is_custom = 1, updated_at = datetime('now')",
+        rusqlite::params![agent_name, system_prompt, user_template],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Reset an agent prompt to its hardcoded default by deleting the DB entry.
+#[tauri::command]
+pub fn reset_agent_prompt(db: State<'_, DbState>, agent_name: String) -> Result<(), String> {
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM agent_prompts WHERE agent_name = ?1", [&agent_name])
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

@@ -27,7 +27,7 @@ import {
 
 // ─── Types ───
 
-type ExportFormat = "txt" | "md" | "docx" | "epub";
+type ExportFormat = "txt" | "md" | "docx" | "epub" | "pdf";
 
 interface DataStats {
   dbSizeEstimate: string;
@@ -184,6 +184,9 @@ export function DataManagementPage() {
           break;
         case "epub":
           await projectApi.exportEpub(projectId);
+          break;
+        case "pdf":
+          await projectApi.exportPdf(projectId);
           break;
       }
       showFeedback("success", `${format.toUpperCase()} 导出已开始`);
@@ -401,7 +404,7 @@ export function DataManagementPage() {
             </button>
             {exportOpen && (
               <div className="absolute right-0 mt-1 w-32 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
-                {(["txt", "md", "docx", "epub"] as ExportFormat[]).map((fmt) => (
+                {(["txt", "md", "docx", "epub", "pdf"] as ExportFormat[]).map((fmt) => (
                   <button
                     key={fmt}
                     onClick={() => handleExport(fmt)}

@@ -1,4 +1,28 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { exit } from "@tauri-apps/plugin-process";
+
+
+/** Listen for the Rust-side close-requested event and exit the app. */
+function CloseHandler() {
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        unlisten = await listen("close-requested", async () => {
+          // Give the app a moment for any pending saves, then exit
+          await exit(0);
+        });
+      } catch {
+        // Not running in Tauri — ignore
+      }
+    })();
+    return () => { unlisten?.(); };
+  }, []);
+  return null;
+}
+
 import { I18nProvider } from "./lib/i18n";
 import { ThemeProvider } from "./lib/theme";
 import { AppShell } from "./components/layout/AppShell";
@@ -17,6 +41,7 @@ import { ChapterComparePage } from "./components/chapter/ChapterComparePage";
 import { RetconPage } from "./components/retcon/RetconPage";
 import { SettingsPage } from "./components/common/SettingsPage";
 import { DeAiRulesPage } from "./components/settings/DeAiRulesPage";
+import { ComplianceShieldPage } from "./components/compliance/ComplianceShieldPage";
 import { SoulTemplatesPage, GenreTemplatesPage } from "./components/settings/TemplatePages";
 import { NotificationPrefsPage } from "./components/settings/NotificationPrefsPage";
 import { QuickStartPage } from "./components/project/QuickStartPage";
@@ -73,8 +98,9 @@ import { GlobalResourcesPage } from "./components/settings/GlobalResourcesPage";
 function App() {
   return (
     <ThemeProvider>
+      <CloseHandler />
       <I18nProvider>
-        <BrowserRouter>
+        <HashRouter>
           <Routes>
             <Route path="/" element={<BookshelfPage />} />
             <Route path="/project/:projectId" element={<AppShell />}>
@@ -106,6 +132,7 @@ function App() {
               <Route path="ledger" element={<LedgerPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="de-ai-rules" element={<DeAiRulesPage />} />
+              <Route path="compliance-shield" element={<ComplianceShieldPage />} />
               <Route path="soul-templates" element={<SoulTemplatesPage />} />
               <Route path="genre-templates" element={<GenreTemplatesPage />} />
               <Route path="notification-prefs" element={<NotificationPrefsPage />} />
@@ -148,7 +175,7 @@ function App() {
             <Route path="/setup" element={<ProjectSetupPage />} />
             <Route path="/quick-start" element={<QuickStartPage />} />
           </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </I18nProvider>
     </ThemeProvider>
   );

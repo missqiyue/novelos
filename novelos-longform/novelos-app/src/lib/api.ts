@@ -28,6 +28,7 @@ export type {
   CompileIssue,
   CompileStats,
   CompileResult,
+  ParagraphRewriteResult,
   CharacterStateInfo,
   RelationshipStateInfo,
   TimelineNodeInfo,
@@ -57,15 +58,27 @@ export type {
   AgentLogEntry,
   PipelineStep,
   PipelineResult,
+  ReviewConflict,
+  ConflictMatrix,
   BackgroundTask,
   StyleProfileInfo,
   WritingPatternInfo,
+  UpsertWritingPatternInput,
   GlobalResourcesOverview,
   EditorPrefs,
   LocationInfo,
   FactionInfo,
   CollisionItem,
   WritingSessionInfo,
+  CrashRecoveryInfo,
+  ComplianceHit,
+  ComplianceScanResult,
+  ComplianceWordEntry,
+  SimilarChapterResult,
+  RagSemanticRecallItem,
+  RagSemanticRecallResponse,
+  RagIntentFilter,
+  IndexStats,
 } from "./tauri";
 
 export { WebNotSupportedError } from "./web-api";
@@ -91,6 +104,9 @@ export const taskApi = src.taskApi;
 export const sharedResourcesApi = src.sharedResourcesApi;
 export const worldApi = src.worldApi;
 export const writingSessionApi = src.writingSessionApi;
+export const crashRecoveryApi = src.crashRecoveryApi;
+export const complianceApi = src.complianceApi;
+export const ragApi = src.ragApi;
 
 let initialized = false;
 

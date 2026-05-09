@@ -6,6 +6,7 @@ import {
   FileCode,
   FileArchive,
   BookOpen,
+  FileDown,
   Loader2,
   Check,
   FolderOpen,
@@ -58,6 +59,15 @@ const formats: ExportFormat[] = [
     extension: ".epub",
     mimeType: "application/epub+zip",
     exportFn: projectApi.exportEpub,
+  },
+  {
+    key: "pdf",
+    name: "PDF",
+    description: "便携文档格式，排版固定，适合打印、分享和归档",
+    icon: FileDown,
+    extension: ".pdf",
+    mimeType: "application/pdf",
+    exportFn: projectApi.exportPdf,
   },
 ];
 

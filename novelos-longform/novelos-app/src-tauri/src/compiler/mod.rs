@@ -36,6 +36,7 @@ pub struct CompileIssue {
     pub message: String,
     pub detail: Option<String>,
     pub location: Option<String>,
+    pub paragraph_index: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +131,24 @@ fn default_passes() -> Vec<Box<dyn CompilePass>> {
 }
 
 // ─── Main entry point ───
+
+/// Find the paragraph index (0-based) where a search string first appears.
+/// Paragraphs are split on double-newline; empty paragraphs are skipped.
+pub fn find_paragraph_index(draft_text: &str, search: &str) -> Option<usize> {
+    let paragraphs: Vec<&str> = draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    for (i, para) in paragraphs.iter().enumerate() {
+        if para.contains(search) {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// Extract a specific paragraph by 0-based index.
+pub fn get_paragraph_by_index(draft_text: &str, index: usize) -> Option<String> {
+    let paragraphs: Vec<&str> = draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    paragraphs.get(index).map(|s| s.to_string())
+}
 
 pub fn run_compiler(ctx: &CompileContext) -> CompileResult {
     let passes = default_passes();

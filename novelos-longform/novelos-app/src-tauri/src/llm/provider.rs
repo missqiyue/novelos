@@ -17,4 +17,13 @@ pub trait LlmProvider {
     >
     where
         Self: Sized + Send + 'static;
+
+    /// Generate an embedding vector for the given text using this provider.
+    fn embed(
+        &self,
+        text: &str,
+        model: &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+    >;
 }
