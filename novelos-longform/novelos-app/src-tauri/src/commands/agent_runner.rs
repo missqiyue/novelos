@@ -27,10 +27,5 @@ pub async fn run_agent_with_timeout(
         run_agent(llm_state, db, agent_name.clone(), variables),
     )
     .await
-    .map_err(|_elapsed| {
-        format!(
-            "Agent {} timed out after {}s",
-            agent_name, timeout_duration
-        )
-    })?
+    .map_err(|_elapsed| format!("Agent {} timed out after {}s", agent_name, timeout_duration))?
 }

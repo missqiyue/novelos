@@ -45,7 +45,10 @@ pub struct CreateCanonRuleInput {
 }
 
 #[tauri::command]
-pub fn list_canon_rules(db: State<'_, DbState>, scope_type: Option<String>) -> Result<Vec<CanonRuleInfo>, String> {
+pub fn list_canon_rules(
+    db: State<'_, DbState>,
+    scope_type: Option<String>,
+) -> Result<Vec<CanonRuleInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -89,7 +92,10 @@ pub fn list_canon_rules(db: State<'_, DbState>, scope_type: Option<String>) -> R
 }
 
 #[tauri::command]
-pub fn create_canon_rule(db: State<'_, DbState>, input: CreateCanonRuleInput) -> Result<CanonRuleInfo, String> {
+pub fn create_canon_rule(
+    db: State<'_, DbState>,
+    input: CreateCanonRuleInput,
+) -> Result<CanonRuleInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -100,9 +106,19 @@ pub fn create_canon_rule(db: State<'_, DbState>, input: CreateCanonRuleInput) ->
     let is_hard = input.is_hard.unwrap_or(false) as i64;
 
     crate::db::transactions::create_canon_rule_transaction(
-        conn, &project_id, &id, &input.rule_key, &input.rule_name, &rule_type,
-        &input.scope_type, input.scope_ref.as_deref(), &input.content, is_hard,
-        input.source_type.as_deref(), input.source_ref.as_deref(), &now,
+        conn,
+        &project_id,
+        &id,
+        &input.rule_key,
+        &input.rule_name,
+        &rule_type,
+        &input.scope_type,
+        input.scope_ref.as_deref(),
+        &input.content,
+        is_hard,
+        input.source_type.as_deref(),
+        input.source_ref.as_deref(),
+        &now,
     )?;
 
     get_canon_rule_inner(conn, &id)
@@ -140,28 +156,49 @@ fn get_canon_rule_inner(conn: &rusqlite::Connection, id: &str) -> Result<CanonRu
 }
 
 #[tauri::command]
-pub fn update_canon_rule(db: State<'_, DbState>, id: String, content: Option<String>, rule_name: Option<String>, status: Option<String>, is_hard: Option<bool>, change_reason: Option<String>) -> Result<CanonRuleInfo, String> {
+pub fn update_canon_rule(
+    db: State<'_, DbState>,
+    id: String,
+    content: Option<String>,
+    rule_name: Option<String>,
+    status: Option<String>,
+    is_hard: Option<bool>,
+    change_reason: Option<String>,
+) -> Result<CanonRuleInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
 
     if let Some(c) = &content {
         crate::db::transactions::update_canon_with_version(
-            conn, &id, c, change_reason.as_deref(), &now,
+            conn,
+            &id,
+            c,
+            change_reason.as_deref(),
+            &now,
         )?;
     }
 
     if let Some(n) = &rule_name {
-        conn.execute("UPDATE canon_rules SET rule_name = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![n, now, id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE canon_rules SET rule_name = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![n, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(s) = &status {
-        conn.execute("UPDATE canon_rules SET status = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![s, now, id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE canon_rules SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![s, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(h) = is_hard {
-        conn.execute("UPDATE canon_rules SET is_hard = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![h as i64, now, id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE canon_rules SET is_hard = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![h as i64, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     get_canon_rule_inner(conn, &id)
@@ -176,7 +213,10 @@ pub fn delete_canon_rule(db: State<'_, DbState>, id: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn list_canon_rule_versions(db: State<'_, DbState>, canon_rule_id: String) -> Result<Vec<CanonRuleVersionInfo>, String> {
+pub fn list_canon_rule_versions(
+    db: State<'_, DbState>,
+    canon_rule_id: String,
+) -> Result<Vec<CanonRuleVersionInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -204,7 +244,10 @@ pub fn list_canon_rule_versions(db: State<'_, DbState>, canon_rule_id: String) -
 }
 
 #[tauri::command]
-pub fn search_canon_rules(db: State<'_, DbState>, query: String) -> Result<Vec<CanonRuleInfo>, String> {
+pub fn search_canon_rules(
+    db: State<'_, DbState>,
+    query: String,
+) -> Result<Vec<CanonRuleInfo>, String> {
     if query.trim().is_empty() {
         return list_canon_rules(db, None);
     }

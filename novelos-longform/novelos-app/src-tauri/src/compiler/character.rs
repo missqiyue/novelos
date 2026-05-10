@@ -1,10 +1,14 @@
-use super::{CompileContext, CompileIssue, CompilePass, find_paragraph_index};
+use super::{find_paragraph_index, CompileContext, CompileIssue, CompilePass};
 
 pub struct CharacterChecker;
 
 impl CompilePass for CharacterChecker {
-    fn name(&self) -> &'static str { "CharacterChecker" }
-    fn description(&self) -> &'static str { "检查角色SOUL完整性+口吻偏移" }
+    fn name(&self) -> &'static str {
+        "CharacterChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查角色SOUL完整性+口吻偏移"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
@@ -25,12 +29,20 @@ impl CompilePass for CharacterChecker {
                     continue;
                 }
                 // Check speech consistency for characters with SOUL data
-                issues.extend(check_speech_consistency(&ch.name, &ch.soul_json, ctx.draft_text));
+                issues.extend(check_speech_consistency(
+                    &ch.name,
+                    &ch.soul_json,
+                    ctx.draft_text,
+                ));
             }
         }
 
         // Check dialogue attribution patterns for untracked characters
-        let paragraphs: Vec<&str> = ctx.draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = ctx
+            .draft_text
+            .split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .collect();
         for para in &paragraphs {
             if para.contains("说") || para.contains("道") || para.contains("问") {
                 for ch in ctx.characters {
@@ -82,31 +94,55 @@ fn extract_speech_profile(soul_json: &str) -> Option<SpeechProfile> {
     None
 }
 
-fn build_profile_from_speech_obj(root: &serde_json::Value, speech: &serde_json::Value) -> SpeechProfile {
-    let tone = speech.get("tone").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let pattern = speech.get("pattern")
+fn build_profile_from_speech_obj(
+    root: &serde_json::Value,
+    speech: &serde_json::Value,
+) -> SpeechProfile {
+    let tone = speech
+        .get("tone")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let pattern = speech
+        .get("pattern")
         .or_else(|| speech.get("sentence_pattern"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let catchphrase = speech.get("catchphrase")
+    let catchphrase = speech
+        .get("catchphrase")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
 
-    let catchphrases: Vec<String> = speech.get("catchphrases")
+    let catchphrases: Vec<String> = speech
+        .get("catchphrases")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
-    let habits: Vec<String> = speech.get("habits")
+    let habits: Vec<String> = speech
+        .get("habits")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
-    let speech_examples: Vec<String> = root.get("speech_examples")
+    let speech_examples: Vec<String> = root
+        .get("speech_examples")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     SpeechProfile {
@@ -148,7 +184,10 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
         || profile.tone.contains("简短")
         || profile.tone.contains("少")
         || profile.pattern.contains("短句")
-        || profile.habits.iter().any(|h| h.contains("少") || h.contains("简短"));
+        || profile
+            .habits
+            .iter()
+            .any(|h| h.contains("少") || h.contains("简短"));
 
     if is_terse {
         for line in &dialogues {
@@ -185,7 +224,10 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
                 issues.push(CompileIssue {
                     checker: "CharacterChecker".to_string(),
                     severity: "info".to_string(),
-                    message: format!("角色 {} 的对话过短（{}字），与SOUL口吻「{}」不太一致", name, char_count, profile.tone),
+                    message: format!(
+                        "角色 {} 的对话过短（{}字），与SOUL口吻「{}」不太一致",
+                        name, char_count, profile.tone
+                    ),
                     detail: Some(format!(
                         "SOUL设定为多言型口吻，此处对话仅{}字。是否需要补充？",
                         char_count
@@ -198,10 +240,17 @@ fn check_speech_consistency(name: &str, soul_json: &str, draft_text: &str) -> Ve
     }
 
     // 4. Check for taboo words / patterns if habits define "不说" or negative patterns
-    let forbidden_patterns: Vec<&str> = profile.habits.iter()
+    let forbidden_patterns: Vec<&str> = profile
+        .habits
+        .iter()
         .filter_map(|h| {
             if h.starts_with("不说") || h.starts_with("从不") || h.starts_with("绝不说") {
-                Some(h.trim_start_matches("不说").trim_start_matches("从不").trim_start_matches("绝不说").trim())
+                Some(
+                    h.trim_start_matches("不说")
+                        .trim_start_matches("从不")
+                        .trim_start_matches("绝不说")
+                        .trim(),
+                )
             } else {
                 None
             }

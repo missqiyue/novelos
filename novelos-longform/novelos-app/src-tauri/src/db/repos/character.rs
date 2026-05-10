@@ -39,7 +39,11 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<CharacterRow> {
     })
 }
 
-fn query_list(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<CharacterRow>, String> {
+fn query_list(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<CharacterRow>, String> {
     let mut stmt = conn.prepare(sql).map_err(db_err)?;
     let rows = stmt.query_map(params, map_row).map_err(db_err)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
@@ -61,7 +65,11 @@ impl Repository<CharacterRow> for CharacterRepo {
     }
 
     fn list(conn: &Connection) -> Result<Vec<CharacterRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM characters ORDER BY name"), [])
+        query_list(
+            conn,
+            &format!("SELECT {SELECT_COLS} FROM characters ORDER BY name"),
+            [],
+        )
     }
 
     fn delete(conn: &Connection, id: &str) -> Result<(), String> {
@@ -89,11 +97,19 @@ impl CharacterRepo {
     }
 
     pub fn list_by_role(conn: &Connection, role_type: &str) -> Result<Vec<CharacterRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM characters WHERE role_type = ?1 ORDER BY name"), [role_type])
+        query_list(
+            conn,
+            &format!("SELECT {SELECT_COLS} FROM characters WHERE role_type = ?1 ORDER BY name"),
+            [role_type],
+        )
     }
 
     pub fn list_by_status(conn: &Connection, status: &str) -> Result<Vec<CharacterRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM characters WHERE status = ?1 ORDER BY name"), [status])
+        query_list(
+            conn,
+            &format!("SELECT {SELECT_COLS} FROM characters WHERE status = ?1 ORDER BY name"),
+            [status],
+        )
     }
 }
 
@@ -141,15 +157,23 @@ fn map_state_row(row: &rusqlite::Row) -> rusqlite::Result<CharacterStateRow> {
 pub struct CharacterStateRepo;
 
 impl CharacterStateRepo {
-    pub fn list_by_character(conn: &Connection, character_id: &str) -> Result<Vec<CharacterStateRow>, String> {
+    pub fn list_by_character(
+        conn: &Connection,
+        character_id: &str,
+    ) -> Result<Vec<CharacterStateRow>, String> {
         let mut stmt = conn
             .prepare(&format!("SELECT {STATE_COLS} FROM character_states WHERE character_id = ?1 ORDER BY chapter_from"))
             .map_err(db_err)?;
-        let rows = stmt.query_map([character_id], map_state_row).map_err(db_err)?;
+        let rows = stmt
+            .query_map([character_id], map_state_row)
+            .map_err(db_err)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 
-    pub fn current_for_character(conn: &Connection, character_id: &str) -> Result<Option<CharacterStateRow>, String> {
+    pub fn current_for_character(
+        conn: &Connection,
+        character_id: &str,
+    ) -> Result<Option<CharacterStateRow>, String> {
         match conn.query_row(
             &format!("SELECT {STATE_COLS} FROM character_states WHERE character_id = ?1 AND chapter_to IS NULL ORDER BY chapter_from DESC LIMIT 1"),
             [character_id],
@@ -200,19 +224,30 @@ fn map_rel_row(row: &rusqlite::Row) -> rusqlite::Result<RelationshipStateRow> {
 pub struct RelationshipStateRepo;
 
 impl RelationshipStateRepo {
-    pub fn list_by_character(conn: &Connection, character_id: &str) -> Result<Vec<RelationshipStateRow>, String> {
+    pub fn list_by_character(
+        conn: &Connection,
+        character_id: &str,
+    ) -> Result<Vec<RelationshipStateRow>, String> {
         let mut stmt = conn
             .prepare(&format!("SELECT {REL_COLS} FROM relationship_states WHERE source_character_id = ?1 OR target_character_id = ?1 ORDER BY chapter_from"))
             .map_err(db_err)?;
-        let rows = stmt.query_map([character_id], map_rel_row).map_err(db_err)?;
+        let rows = stmt
+            .query_map([character_id], map_rel_row)
+            .map_err(db_err)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 
-    pub fn list_between(conn: &Connection, source_id: &str, target_id: &str) -> Result<Vec<RelationshipStateRow>, String> {
+    pub fn list_between(
+        conn: &Connection,
+        source_id: &str,
+        target_id: &str,
+    ) -> Result<Vec<RelationshipStateRow>, String> {
         let mut stmt = conn
             .prepare(&format!("SELECT {REL_COLS} FROM relationship_states WHERE (source_character_id = ?1 AND target_character_id = ?2) OR (source_character_id = ?2 AND target_character_id = ?1) ORDER BY chapter_from"))
             .map_err(db_err)?;
-        let rows = stmt.query_map(rusqlite::params![source_id, target_id], map_rel_row).map_err(db_err)?;
+        let rows = stmt
+            .query_map(rusqlite::params![source_id, target_id], map_rel_row)
+            .map_err(db_err)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 }

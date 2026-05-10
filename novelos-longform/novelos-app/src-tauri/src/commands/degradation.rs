@@ -44,7 +44,10 @@ pub async fn run_genre_match_with_fallback(
     // Parse the agent output to extract candidates
     let candidates = parse_genre_candidates(&result.content);
 
-    let top_confidence = candidates.first().map(|c| c.match_score / 10.0).unwrap_or(0.0);
+    let top_confidence = candidates
+        .first()
+        .map(|c| c.match_score / 10.0)
+        .unwrap_or(0.0);
     let needs_user_selection = top_confidence < GENRE_CONFIDENCE_THRESHOLD;
 
     Ok(GenreMatchResult {
@@ -121,7 +124,10 @@ pub async fn run_agent_step_with_skip(
             confidence: 0.0,
             timeout_secs: effective_timeout,
             duration_ms,
-            skip_reason: Some(format!("Agent timed out after {}s — skipped, can be retried manually", effective_timeout)),
+            skip_reason: Some(format!(
+                "Agent timed out after {}s — skipped, can be retried manually",
+                effective_timeout
+            )),
         }),
     }
 }
@@ -174,27 +180,40 @@ fn parse_genre_candidates(content: &str) -> Vec<GenreCandidate> {
         if let Some(arr) = value.as_array() {
             let mut candidates = Vec::new();
             for item in arr {
-                let genre_id = item.get("genre_id")
+                let genre_id = item
+                    .get("genre_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let genre_name = item.get("genre_name")
+                let genre_name = item
+                    .get("genre_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let match_score = item.get("match_score")
+                let match_score = item
+                    .get("match_score")
                     .and_then(|v| v.as_f64())
                     .unwrap_or(5.0) as f32;
-                let reasoning = item.get("reasoning")
+                let reasoning = item
+                    .get("reasoning")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
                 if !genre_name.is_empty() {
-                    candidates.push(GenreCandidate { genre_id, genre_name, match_score, reasoning });
+                    candidates.push(GenreCandidate {
+                        genre_id,
+                        genre_name,
+                        match_score,
+                        reasoning,
+                    });
                 }
             }
             if !candidates.is_empty() {
-                candidates.sort_by(|a, b| b.match_score.partial_cmp(&a.match_score).unwrap_or(std::cmp::Ordering::Equal));
+                candidates.sort_by(|a, b| {
+                    b.match_score
+                        .partial_cmp(&a.match_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 return candidates;
             }
         }
@@ -205,7 +224,8 @@ fn parse_genre_candidates(content: &str) -> Vec<GenreCandidate> {
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with(|c: char| c.is_ascii_digit()) {
-            let name = trimmed.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ')
+            let name = trimmed
+                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ')
                 .trim()
                 .to_string();
             if !name.is_empty() && name.len() > 1 {

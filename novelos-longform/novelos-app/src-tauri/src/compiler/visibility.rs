@@ -1,10 +1,14 @@
-use super::{CompileContext, CompileIssue, CompilePass, find_paragraph_index};
+use super::{find_paragraph_index, CompileContext, CompileIssue, CompilePass};
 
 pub struct VisibilityChecker;
 
 impl CompilePass for VisibilityChecker {
-    fn name(&self) -> &'static str { "VisibilityChecker" }
-    fn description(&self) -> &'static str { "检查信息越权" }
+    fn name(&self) -> &'static str {
+        "VisibilityChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查信息越权"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
@@ -59,7 +63,9 @@ impl CompilePass for VisibilityChecker {
         // For now, check if a character references another character's private thoughts
         let thought_indicators = ["心中暗想", "暗自思忖", "心想", "内心独白"];
         for ch in ctx.characters {
-            let paragraphs: Vec<&str> = ctx.draft_text.split("\n\n")
+            let paragraphs: Vec<&str> = ctx
+                .draft_text
+                .split("\n\n")
                 .filter(|p| p.contains(&ch.name))
                 .collect();
 
@@ -80,9 +86,11 @@ impl CompilePass for VisibilityChecker {
                             // Simple check: does another character echo the thought?
                             // Only flag if there's a very close match (>= 4 chars overlap)
                             if let Some(overlap) = find_significant_overlap(&thought_text, 4) {
-                                let rest_of_text = &ctx.draft_text[ctx.draft_text.find(para).unwrap_or(0)..];
-                                if rest_of_text.contains(&other_ch.name) &&
-                                   rest_of_text.contains(overlap) {
+                                let rest_of_text =
+                                    &ctx.draft_text[ctx.draft_text.find(para).unwrap_or(0)..];
+                                if rest_of_text.contains(&other_ch.name)
+                                    && rest_of_text.contains(overlap)
+                                {
                                     issues.push(CompileIssue {
                                         checker: self.name().to_string(),
                                         severity: "info".to_string(),
@@ -158,7 +166,10 @@ fn extract_after<'a>(text: &'a str, marker: &str) -> &'a str {
         if start < text.len() {
             let remainder = &text[start..];
             // Take up to the next sentence boundary
-            remainder.split(|c: char| c == '。' || c == '！' || c == '？').next().unwrap_or("")
+            remainder
+                .split(|c: char| c == '。' || c == '！' || c == '？')
+                .next()
+                .unwrap_or("")
         } else {
             ""
         }
@@ -172,11 +183,16 @@ fn find_significant_overlap(text: &str, min_len: usize) -> Option<&str> {
         return None;
     }
     // Simple: return the first min_len-character window
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() >= min_len {
-        Some(&text[..chars[min_len].len_utf8() + text[..chars[min_len].len_utf8()].len()])
-    } else {
+    let prefix_end = text
+        .char_indices()
+        .nth(min_len)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len());
+
+    if text[..prefix_end].chars().count() < min_len {
         None
+    } else {
+        Some(&text[..prefix_end])
     }
 }
 

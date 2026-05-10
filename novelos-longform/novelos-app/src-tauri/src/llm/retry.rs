@@ -1,6 +1,5 @@
 /// Generic retry logic for LLM API calls with exponential backoff + jitter.
 /// Handles 429 (rate limit) and transient server errors (5xx).
-
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -43,10 +42,7 @@ pub fn is_retryable_status(status: u16) -> bool {
 /// - Network errors (timeout, connection reset)
 ///
 /// Non-retryable errors (4xx except 429) are returned immediately.
-pub async fn retry_async<F, Fut, T>(
-    max_retries: u32,
-    operation: F,
-) -> Result<T, String>
+pub async fn retry_async<F, Fut, T>(max_retries: u32, operation: F) -> Result<T, String>
 where
     F: Fn(u32) -> Fut,
     Fut: std::future::Future<Output = Result<T, String>>,
@@ -101,8 +97,9 @@ fn is_retryable_error(err: &str) -> bool {
     if err.contains("500") || err.contains("502") || err.contains("503") || err.contains("504") {
         return true;
     }
-    // Network errors
-    if err.contains("timeout") || err.contains("connection reset") || err.contains("Connection refused") {
+    // Network errors (but NOT timeout — timeout is not retryable in pipeline context
+    // because the caller already has its own timeout, and retrying makes it worse)
+    if err.contains("connection reset") || err.contains("Connection refused") {
         return true;
     }
     false
@@ -164,10 +161,13 @@ mod tests {
     #[test]
     fn test_is_retryable_error() {
         assert!(is_retryable_error("Rate limited (429): too many requests"));
-        assert!(is_retryable_error("LLM API error (503): service unavailable"));
+        assert!(is_retryable_error(
+            "LLM API error (503): service unavailable"
+        ));
         assert!(is_retryable_error("connection reset by peer"));
         assert!(!is_retryable_error("LLM API error (400): bad request"));
         assert!(!is_retryable_error("LLM API error (401): unauthorized"));
+        assert!(!is_retryable_error("Network error: request timeout")); // timeout is NOT retryable
     }
 
     #[tokio::test]

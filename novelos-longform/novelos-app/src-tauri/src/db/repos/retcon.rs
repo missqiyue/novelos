@@ -43,7 +43,11 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<RetconRequestRow> {
     })
 }
 
-fn query_list(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<RetconRequestRow>, String> {
+fn query_list(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<RetconRequestRow>, String> {
     let mut stmt = conn.prepare(sql).map_err(db_err)?;
     let rows = stmt.query_map(params, map_row).map_err(db_err)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
@@ -65,7 +69,11 @@ impl Repository<RetconRequestRow> for RetconRequestRepo {
     }
 
     fn list(conn: &Connection) -> Result<Vec<RetconRequestRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM retcon_requests ORDER BY created_at DESC"), [])
+        query_list(
+            conn,
+            &format!("SELECT {SELECT_COLS} FROM retcon_requests ORDER BY created_at DESC"),
+            [],
+        )
     }
 
     fn delete(conn: &Connection, id: &str) -> Result<(), String> {
@@ -76,11 +84,18 @@ impl Repository<RetconRequestRow> for RetconRequestRepo {
 }
 
 impl RetconRequestRepo {
-    pub fn list_by_status(conn: &Connection, status: &str) -> Result<Vec<RetconRequestRow>, String> {
+    pub fn list_by_status(
+        conn: &Connection,
+        status: &str,
+    ) -> Result<Vec<RetconRequestRow>, String> {
         query_list(conn, &format!("SELECT {SELECT_COLS} FROM retcon_requests WHERE status = ?1 ORDER BY created_at DESC"), [status])
     }
 
-    pub fn list_by_target(conn: &Connection, target_type: &str, target_ref: &str) -> Result<Vec<RetconRequestRow>, String> {
+    pub fn list_by_target(
+        conn: &Connection,
+        target_type: &str,
+        target_ref: &str,
+    ) -> Result<Vec<RetconRequestRow>, String> {
         query_list(
             conn,
             &format!("SELECT {SELECT_COLS} FROM retcon_requests WHERE target_type = ?1 AND target_ref = ?2 ORDER BY created_at DESC"),
@@ -88,7 +103,12 @@ impl RetconRequestRepo {
         )
     }
 
-    pub fn update_status(conn: &Connection, id: &str, status: &str, now: &str) -> Result<(), String> {
+    pub fn update_status(
+        conn: &Connection,
+        id: &str,
+        status: &str,
+        now: &str,
+    ) -> Result<(), String> {
         conn.execute(
             "UPDATE retcon_requests SET status = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![status, now, id],

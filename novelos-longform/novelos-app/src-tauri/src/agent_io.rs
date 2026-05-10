@@ -88,23 +88,36 @@ impl AgentOutput {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(content) {
             Self {
                 result: content.to_string(),
-                reasons: parsed.get("strengths")
+                reasons: parsed
+                    .get("strengths")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
                     .unwrap_or_default(),
-                risk_flags: parsed.get("must_fix")
+                risk_flags: parsed
+                    .get("must_fix")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_str()).map(|s| RiskFlag {
-                        severity: "high".to_string(),
-                        category: "review".to_string(),
-                        message: s.to_string(),
-                    }).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| RiskFlag {
+                                severity: "high".to_string(),
+                                category: "review".to_string(),
+                                message: s.to_string(),
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default(),
-                confidence: parsed.get("score")
+                confidence: parsed
+                    .get("score")
                     .and_then(|v| v.as_f64())
                     .map(|s| (s as f32 / 10.0).min(1.0))
                     .unwrap_or(0.0),
-                next_action: parsed.get("verdict")
+                next_action: parsed
+                    .get("verdict")
                     .or(parsed.get("next_action"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string()),
@@ -135,10 +148,11 @@ pub fn log_agent_input_output(
         "objective": input.objective,
         "chapter": input.chapter_number,
         "constraints": input.constraints,
-        "result_preview": &output.result[..output.result.len().min(200)],
+        "result_preview": output.result.chars().take(200).collect::<String>(),
         "confidence": output.confidence,
         "risk_flags": output.risk_flags.len(),
         "next_action": output.next_action,
         "duration_ms": duration_ms,
-    }).to_string()
+    })
+    .to_string()
 }

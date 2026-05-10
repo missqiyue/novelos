@@ -68,7 +68,10 @@ pub fn list_locations(db: State<'_, DbState>) -> Result<Vec<LocationInfo>, Strin
 }
 
 #[tauri::command]
-pub fn create_location(db: State<'_, DbState>, input: CreateLocationInput) -> Result<LocationInfo, String> {
+pub fn create_location(
+    db: State<'_, DbState>,
+    input: CreateLocationInput,
+) -> Result<LocationInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -211,7 +214,10 @@ pub fn list_factions(db: State<'_, DbState>) -> Result<Vec<FactionInfo>, String>
 }
 
 #[tauri::command]
-pub fn create_faction(db: State<'_, DbState>, input: CreateFactionInput) -> Result<FactionInfo, String> {
+pub fn create_faction(
+    db: State<'_, DbState>,
+    input: CreateFactionInput,
+) -> Result<FactionInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -300,7 +306,10 @@ pub struct CollisionItem {
 }
 
 #[tauri::command]
-pub fn check_collisions(db: State<'_, DbState>, query: String) -> Result<Vec<CollisionItem>, String> {
+pub fn check_collisions(
+    db: State<'_, DbState>,
+    query: String,
+) -> Result<Vec<CollisionItem>, String> {
     let global_conn = db.global.lock().map_err(|e| e.to_string())?;
     let conn = &*global_conn;
 
@@ -309,9 +318,7 @@ pub fn check_collisions(db: State<'_, DbState>, query: String) -> Result<Vec<Col
 
     // Check banned_names
     let mut stmt = conn
-        .prepare(
-            "SELECT id, name, source_work, ban_level FROM banned_names WHERE name LIKE ?1",
-        )
+        .prepare("SELECT id, name, source_work, ban_level FROM banned_names WHERE name LIKE ?1")
         .map_err(|e| e.to_string())?;
 
     let name_rows = stmt

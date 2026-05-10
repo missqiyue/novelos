@@ -114,7 +114,9 @@ pub fn create_retcon_request(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let project_id = db.current_project_id().unwrap_or_default();
-    let request_type = input.request_type.unwrap_or_else(|| "correction".to_string());
+    let request_type = input
+        .request_type
+        .unwrap_or_else(|| "correction".to_string());
 
     conn.execute(
         "INSERT INTO retcon_requests (id, project_id, request_type, target_type, target_ref, reason, impact_summary, risk_level, strategy, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11)",
@@ -220,7 +222,12 @@ pub fn analyze_retcon_impact_inner(
             "chapter" => analyze_chapter_impact(conn, target_ref)?,
             "character" => analyze_character_impact(conn, target_ref)?,
             "canon" => analyze_canon_impact(conn, target_ref)?,
-            other => return Err(format!("Unknown target_type: {}. Expected 'chapter', 'character', or 'canon'", other)),
+            other => {
+                return Err(format!(
+                    "Unknown target_type: {}. Expected 'chapter', 'character', or 'canon'",
+                    other
+                ))
+            }
         };
 
     let total_affected = affected_volumes.len()
@@ -236,11 +243,8 @@ pub fn analyze_retcon_impact_inner(
         "low"
     };
 
-    let fix_schemes = build_fix_schemes(
-        risk_level,
-        affected_chapters.len(),
-        affected_volumes.len(),
-    );
+    let fix_schemes =
+        build_fix_schemes(risk_level, affected_chapters.len(), affected_volumes.len());
 
     Ok(RetconImpactReport {
         target_type: target_type.to_string(),
@@ -272,13 +276,18 @@ pub fn analyze_retcon_impact(
 fn analyze_chapter_impact(
     conn: &rusqlite::Connection,
     chapter_str: &str,
-) -> Result<(
-    Vec<AffectedVolume>,
-    Vec<i64>,
-    Vec<AffectedCharacter>,
-    Vec<AffectedForeshadow>,
-), String> {
-    let chapter_number: i64 = chapter_str.parse().map_err(|_| format!("Invalid chapter_number: {}", chapter_str))?;
+) -> Result<
+    (
+        Vec<AffectedVolume>,
+        Vec<i64>,
+        Vec<AffectedCharacter>,
+        Vec<AffectedForeshadow>,
+    ),
+    String,
+> {
+    let chapter_number: i64 = chapter_str
+        .parse()
+        .map_err(|_| format!("Invalid chapter_number: {}", chapter_str))?;
 
     // Find affected volumes (volumes whose range contains this chapter)
     let mut stmt = conn
@@ -316,19 +325,27 @@ fn analyze_chapter_impact(
     // Find foreshadows planted or resolved in the affected chapter range
     let affected_foreshadows = find_foreshadows_in_chapters(conn, &affected_chapter_numbers)?;
 
-    Ok((affected_volumes, affected_chapter_numbers, affected_characters, affected_foreshadows))
+    Ok((
+        affected_volumes,
+        affected_chapter_numbers,
+        affected_characters,
+        affected_foreshadows,
+    ))
 }
 
 /// Analyze impact when retcon target is a character.
 fn analyze_character_impact(
     conn: &rusqlite::Connection,
     character_id: &str,
-) -> Result<(
-    Vec<AffectedVolume>,
-    Vec<i64>,
-    Vec<AffectedCharacter>,
-    Vec<AffectedForeshadow>,
-), String> {
+) -> Result<
+    (
+        Vec<AffectedVolume>,
+        Vec<i64>,
+        Vec<AffectedCharacter>,
+        Vec<AffectedForeshadow>,
+    ),
+    String,
+> {
     // Get character name for event participant matching
     let (character_name, _role_type): (String, String) = conn
         .query_row(
@@ -343,7 +360,9 @@ fn analyze_character_impact(
     // Find chapters from character_states (range-based appearance)
     {
         let mut stmt = conn
-            .prepare("SELECT chapter_from, chapter_to FROM character_states WHERE character_id = ?1")
+            .prepare(
+                "SELECT chapter_from, chapter_to FROM character_states WHERE character_id = ?1",
+            )
             .map_err(|e| e.to_string())?;
         let ranges: Vec<(Option<i64>, Option<i64>)> = stmt
             .query_map([character_id], |row| {
@@ -434,7 +453,11 @@ fn analyze_character_impact(
             let other_id = if src == character_id { tgt } else { src };
             if !all_affected_chars.iter().any(|c| &c.id == other_id) {
                 let other_name: String = conn
-                    .query_row("SELECT name FROM characters WHERE id = ?1", [other_id], |row| row.get(0))
+                    .query_row(
+                        "SELECT name FROM characters WHERE id = ?1",
+                        [other_id],
+                        |row| row.get(0),
+                    )
                     .unwrap_or_else(|_| "未知角色".to_string());
                 all_affected_chars.push(AffectedCharacter {
                     id: other_id.clone(),
@@ -448,19 +471,27 @@ fn analyze_character_impact(
     // Find foreshadows in affected chapters
     let affected_foreshadows = find_foreshadows_in_chapters(conn, &affected_chapters)?;
 
-    Ok((affected_volumes, affected_chapters, all_affected_chars, affected_foreshadows))
+    Ok((
+        affected_volumes,
+        affected_chapters,
+        all_affected_chars,
+        affected_foreshadows,
+    ))
 }
 
 /// Analyze impact when retcon target is a canon rule.
 fn analyze_canon_impact(
     conn: &rusqlite::Connection,
     rule_id: &str,
-) -> Result<(
-    Vec<AffectedVolume>,
-    Vec<i64>,
-    Vec<AffectedCharacter>,
-    Vec<AffectedForeshadow>,
-), String> {
+) -> Result<
+    (
+        Vec<AffectedVolume>,
+        Vec<i64>,
+        Vec<AffectedCharacter>,
+        Vec<AffectedForeshadow>,
+    ),
+    String,
+> {
     // Get the rule content and name
     let (rule_name, content): (String, String) = conn
         .query_row(
@@ -501,7 +532,9 @@ fn analyze_canon_impact(
         };
         let mut fts_chapters: Vec<i64> = Vec::new();
         if let Ok(rows) = stmt.query_map([&fts_query], |row| row.get::<_, i64>(0)) {
-            for ch in rows.flatten() { fts_chapters.push(ch); }
+            for ch in rows.flatten() {
+                fts_chapters.push(ch);
+            }
         }
         for ch in fts_chapters {
             if !affected_chapters.contains(&ch) {
@@ -561,7 +594,12 @@ fn analyze_canon_impact(
     // Foreshadows in affected chapters
     let affected_foreshadows = find_foreshadows_in_chapters(conn, &affected_chapters)?;
 
-    Ok((affected_volumes, affected_chapters, affected_characters, affected_foreshadows))
+    Ok((
+        affected_volumes,
+        affected_chapters,
+        affected_characters,
+        affected_foreshadows,
+    ))
 }
 
 /// Helper: find characters whose state ranges overlap with given chapters.
@@ -584,7 +622,7 @@ fn find_characters_in_chapters(
              FROM character_states cs \
              JOIN characters c ON cs.character_id = c.id \
              WHERE (cs.chapter_from <= ?2 OR cs.chapter_from IS NULL) \
-             AND (cs.chapter_to >= ?1 OR cs.chapter_to IS NULL)"
+             AND (cs.chapter_to >= ?1 OR cs.chapter_to IS NULL)",
         )
         .map_err(|e| e.to_string())?;
 
@@ -605,7 +643,11 @@ fn find_characters_in_chapters(
         let involved: Vec<i64> = {
             let start = ch_from.unwrap_or(min_ch);
             let end = ch_to.unwrap_or(max_ch);
-            chapters.iter().copied().filter(|c| *c >= start && *c <= end).collect()
+            chapters
+                .iter()
+                .copied()
+                .filter(|c| *c >= start && *c <= end)
+                .collect()
         };
         if !involved.is_empty() {
             // Check if we already have this character
@@ -638,7 +680,11 @@ fn find_foreshadows_in_chapters(
     }
 
     // Build IN clause safely
-    let placeholders: Vec<String> = chapters.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = chapters
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let in_clause = placeholders.join(",");
     let query = format!(
         "SELECT id, title, status, seed_chapter, resolved_chapter FROM foreshadow_items \
@@ -648,7 +694,12 @@ fn find_foreshadows_in_chapters(
 
     let params: Vec<rusqlite::types::Value> = chapters
         .iter()
-        .flat_map(|c| vec![rusqlite::types::Value::from(*c), rusqlite::types::Value::from(*c)])
+        .flat_map(|c| {
+            vec![
+                rusqlite::types::Value::from(*c),
+                rusqlite::types::Value::from(*c),
+            ]
+        })
         .collect();
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> = params
@@ -675,7 +726,11 @@ fn find_foreshadows_in_chapters(
 }
 
 /// Build three fix schemes (后续补偿 / 局部回写 / 卷级重构) based on impact scope.
-fn build_fix_schemes(risk_level: &str, chapter_count: usize, volume_count: usize) -> Vec<FixScheme> {
+fn build_fix_schemes(
+    risk_level: &str,
+    chapter_count: usize,
+    volume_count: usize,
+) -> Vec<FixScheme> {
     let base_work = chapter_count.max(1) as i64;
 
     vec![
@@ -794,10 +849,7 @@ pub fn reject_retcon(
 /// The plan lists affected chapters and an estimated duration.
 /// Actual chapter re-compilation is handled by the orchestrator.
 #[tauri::command]
-pub fn execute_retcon(
-    db: State<'_, DbState>,
-    retcon_id: String,
-) -> Result<ExecutionPlan, String> {
+pub fn execute_retcon(db: State<'_, DbState>, retcon_id: String) -> Result<ExecutionPlan, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -960,11 +1012,19 @@ pub fn update_retcon_snapshots(
         ).map_err(|e| e.to_string())?;
 
         // Generate new snapshot
-        match crate::commands::snapshot::create_snapshot_for_chapter(conn, &project_id, *chapter_number) {
+        match crate::commands::snapshot::create_snapshot_for_chapter(
+            conn,
+            &project_id,
+            *chapter_number,
+        ) {
             Ok(_) => snapshots_regenerated += 1,
             Err(e) => {
                 // Log error but continue with other chapters
-                log::warn!("Failed to regenerate snapshot for chapter {}: {}", chapter_number, e);
+                log::warn!(
+                    "Failed to regenerate snapshot for chapter {}: {}",
+                    chapter_number,
+                    e
+                );
             }
         }
     }
@@ -974,11 +1034,15 @@ pub fn update_retcon_snapshots(
     conn.execute(
         "UPDATE retcon_requests SET status = 'completed', updated_at = ?1 WHERE id = ?2",
         rusqlite::params![now, retcon_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     // Create notification
     crate::commands::ledger::notify_pipeline_event(
-        conn, &project_id, "retcon", "info",
+        conn,
+        &project_id,
+        "retcon",
+        "info",
         &format!("修史完成：已重新生成{}个章节快照", snapshots_regenerated),
     );
 

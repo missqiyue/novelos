@@ -25,7 +25,10 @@ pub struct SnapshotRef {
 
 /// Generate a snapshot after chapter finalization (SNP-001)
 #[tauri::command]
-pub fn generate_chapter_snapshot(db: State<'_, DbState>, chapter_number: i64) -> Result<SnapshotInfo, String> {
+pub fn generate_chapter_snapshot(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+) -> Result<SnapshotInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -33,7 +36,11 @@ pub fn generate_chapter_snapshot(db: State<'_, DbState>, chapter_number: i64) ->
 }
 
 /// Internal helper for creating a chapter snapshot without needing State
-pub fn create_snapshot_for_chapter(conn: &rusqlite::Connection, project_id: &str, chapter_number: i64) -> Result<SnapshotInfo, String> {
+pub fn create_snapshot_for_chapter(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    chapter_number: i64,
+) -> Result<SnapshotInfo, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -63,7 +70,11 @@ pub fn create_snapshot_for_chapter(conn: &rusqlite::Connection, project_id: &str
         .map_err(|e| e.to_string())?;
 
     let fs_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM foreshadow_items WHERE status = 'planted'", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM foreshadow_items WHERE status = 'planted'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
 
     let volume: Option<(i64, String)> = conn
@@ -93,7 +104,8 @@ pub fn create_snapshot_for_chapter(conn: &rusqlite::Connection, project_id: &str
     conn.execute(
         "UPDATE chapters SET snapshot_id = ?1 WHERE chapter_number = ?2",
         rusqlite::params![id, chapter_number],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(SnapshotInfo {
         id,
@@ -159,7 +171,10 @@ pub fn list_snapshots(
 
 /// Generate a snapshot for an entire arc (SNP-002)
 #[tauri::command]
-pub fn generate_arc_snapshot(db: State<'_, DbState>, arc_id: String) -> Result<SnapshotInfo, String> {
+pub fn generate_arc_snapshot(
+    db: State<'_, DbState>,
+    arc_id: String,
+) -> Result<SnapshotInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -186,17 +201,20 @@ pub fn generate_arc_snapshot(db: State<'_, DbState>, arc_id: String) -> Result<S
         let mut stmt = conn
             .prepare("SELECT chapter_number, title, status, word_count, compiler_status, review_status FROM chapters WHERE chapter_number >= ?1 AND chapter_number <= ?2 ORDER BY chapter_number")
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(rusqlite::params![start, end], |row| {
-            Ok(serde_json::json!({
-                "chapter_number": row.get::<_, i64>(0)?,
-                "title": row.get::<_, Option<String>>(1)?,
-                "status": row.get::<_, String>(2)?,
-                "word_count": row.get::<_, Option<i64>>(3)?,
-                "compiler_status": row.get::<_, Option<String>>(4)?,
-                "review_status": row.get::<_, Option<String>>(5)?,
-            }))
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let rows = stmt
+            .query_map(rusqlite::params![start, end], |row| {
+                Ok(serde_json::json!({
+                    "chapter_number": row.get::<_, i64>(0)?,
+                    "title": row.get::<_, Option<String>>(1)?,
+                    "status": row.get::<_, String>(2)?,
+                    "word_count": row.get::<_, Option<i64>>(3)?,
+                    "compiler_status": row.get::<_, Option<String>>(4)?,
+                    "review_status": row.get::<_, Option<String>>(5)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     };
 
     let query_characters = |start: i64, end: i64| -> Result<Vec<serde_json::Value>, String> {
@@ -207,16 +225,19 @@ pub fn generate_arc_snapshot(db: State<'_, DbState>, arc_id: String) -> Result<S
                  WHERE cs.chapter_from >= ?1 AND cs.chapter_from <= ?2 AND c.status = 'active'",
             )
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(rusqlite::params![start, end], |row| {
-            Ok(serde_json::json!({
-                "name": row.get::<_, String>(0)?,
-                "role_type": row.get::<_, String>(1)?,
-                "level": row.get::<_, Option<String>>(2)?,
-                "emotion": row.get::<_, Option<String>>(3)?,
-                "goal": row.get::<_, Option<String>>(4)?,
-            }))
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let rows = stmt
+            .query_map(rusqlite::params![start, end], |row| {
+                Ok(serde_json::json!({
+                    "name": row.get::<_, String>(0)?,
+                    "role_type": row.get::<_, String>(1)?,
+                    "level": row.get::<_, Option<String>>(2)?,
+                    "emotion": row.get::<_, Option<String>>(3)?,
+                    "goal": row.get::<_, Option<String>>(4)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     };
 
     // Query all chapters in this arc's range
@@ -243,14 +264,17 @@ pub fn generate_arc_snapshot(db: State<'_, DbState>, arc_id: String) -> Result<S
             let mut stmt = conn
                 .prepare("SELECT id, title, seed_chapter FROM foreshadow_items WHERE seed_chapter >= ?1 AND seed_chapter <= ?2 AND status = 'planted'")
                 .map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(rusqlite::params![start, end], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>(0)?,
-                    "title": row.get::<_, String>(1)?,
-                    "seed_chapter": row.get::<_, i64>(2)?,
-                }))
-            }).map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            let rows = stmt
+                .query_map(rusqlite::params![start, end], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "title": row.get::<_, String>(1)?,
+                        "seed_chapter": row.get::<_, i64>(2)?,
+                    }))
+                })
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
         }
         _ => Vec::new(),
     };
@@ -260,14 +284,17 @@ pub fn generate_arc_snapshot(db: State<'_, DbState>, arc_id: String) -> Result<S
             let mut stmt = conn
                 .prepare("SELECT id, title, resolved_chapter FROM foreshadow_items WHERE resolved_chapter >= ?1 AND resolved_chapter <= ?2 AND status = 'resolved'")
                 .map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(rusqlite::params![start, end], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, String>(0)?,
-                    "title": row.get::<_, String>(1)?,
-                    "resolved_chapter": row.get::<_, Option<i64>>(2)?,
-                }))
-            }).map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            let rows = stmt
+                .query_map(rusqlite::params![start, end], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "title": row.get::<_, String>(1)?,
+                        "resolved_chapter": row.get::<_, Option<i64>>(2)?,
+                    }))
+                })
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
         }
         _ => Vec::new(),
     };
@@ -312,7 +339,10 @@ pub fn generate_arc_snapshot(db: State<'_, DbState>, arc_id: String) -> Result<S
 
 /// Generate a comprehensive snapshot for an entire volume (SNP-003)
 #[tauri::command]
-pub fn generate_volume_snapshot(db: State<'_, DbState>, volume_id: String) -> Result<SnapshotInfo, String> {
+pub fn generate_volume_snapshot(
+    db: State<'_, DbState>,
+    volume_id: String,
+) -> Result<SnapshotInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -332,7 +362,17 @@ pub fn generate_volume_snapshot(db: State<'_, DbState>, volume_id: String) -> Re
         )
         .map_err(|e| format!("Volume not found: {}", e))?;
 
-    let (volume_number, volume_title, vol_start, vol_end, vol_goal, vol_conflict, vol_climax, vol_settlement, vol_status) = volume;
+    let (
+        volume_number,
+        volume_title,
+        vol_start,
+        vol_end,
+        vol_goal,
+        vol_conflict,
+        vol_climax,
+        vol_settlement,
+        vol_status,
+    ) = volume;
 
     // Query all chapters in this volume range
     let chapters: Vec<serde_json::Value> = match (vol_start, vol_end) {
@@ -340,17 +380,20 @@ pub fn generate_volume_snapshot(db: State<'_, DbState>, volume_id: String) -> Re
             let mut stmt = conn
                 .prepare("SELECT chapter_number, title, status, word_count, compiler_status, review_status FROM chapters WHERE chapter_number >= ?1 AND chapter_number <= ?2 ORDER BY chapter_number")
                 .map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(rusqlite::params![start, end], |row| {
-                Ok(serde_json::json!({
-                    "chapter_number": row.get::<_, i64>(0)?,
-                    "title": row.get::<_, Option<String>>(1)?,
-                    "status": row.get::<_, String>(2)?,
-                    "word_count": row.get::<_, Option<i64>>(3)?,
-                    "compiler_status": row.get::<_, Option<String>>(4)?,
-                    "review_status": row.get::<_, Option<String>>(5)?,
-                }))
-            }).map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            let rows = stmt
+                .query_map(rusqlite::params![start, end], |row| {
+                    Ok(serde_json::json!({
+                        "chapter_number": row.get::<_, i64>(0)?,
+                        "title": row.get::<_, Option<String>>(1)?,
+                        "status": row.get::<_, String>(2)?,
+                        "word_count": row.get::<_, Option<i64>>(3)?,
+                        "compiler_status": row.get::<_, Option<String>>(4)?,
+                        "review_status": row.get::<_, Option<String>>(5)?,
+                    }))
+                })
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
         }
         _ => Vec::new(),
     };
@@ -370,19 +413,22 @@ pub fn generate_volume_snapshot(db: State<'_, DbState>, volume_id: String) -> Re
         .prepare("SELECT id, arc_type, title, chapter_start, chapter_end, goal, status, priority FROM arcs WHERE volume_id = ?1 ORDER BY priority")
         .map_err(|e| e.to_string())?;
     let arcs: Vec<serde_json::Value> = {
-        let rows = arc_stmt.query_map(rusqlite::params![&volume_id], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "arc_type": row.get::<_, String>(1)?,
-                "title": row.get::<_, Option<String>>(2)?,
-                "chapter_start": row.get::<_, Option<i64>>(3)?,
-                "chapter_end": row.get::<_, Option<i64>>(4)?,
-                "goal": row.get::<_, Option<String>>(5)?,
-                "status": row.get::<_, Option<String>>(6)?,
-                "priority": row.get::<_, Option<i64>>(7)?,
-            }))
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        let rows = arc_stmt
+            .query_map(rusqlite::params![&volume_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "arc_type": row.get::<_, String>(1)?,
+                    "title": row.get::<_, Option<String>>(2)?,
+                    "chapter_start": row.get::<_, Option<i64>>(3)?,
+                    "chapter_end": row.get::<_, Option<i64>>(4)?,
+                    "goal": row.get::<_, Option<String>>(5)?,
+                    "status": row.get::<_, Option<String>>(6)?,
+                    "priority": row.get::<_, Option<i64>>(7)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
 
     // Characters active in this volume range
@@ -395,16 +441,19 @@ pub fn generate_volume_snapshot(db: State<'_, DbState>, volume_id: String) -> Re
                      WHERE cs.chapter_from >= ?1 AND cs.chapter_from <= ?2 AND c.status = 'active'",
                 )
                 .map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(rusqlite::params![start, end], |row| {
-                Ok(serde_json::json!({
-                    "name": row.get::<_, String>(0)?,
-                    "role_type": row.get::<_, String>(1)?,
-                    "level": row.get::<_, Option<String>>(2)?,
-                    "emotion": row.get::<_, Option<String>>(3)?,
-                    "goal": row.get::<_, Option<String>>(4)?,
-                }))
-            }).map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            let rows = stmt
+                .query_map(rusqlite::params![start, end], |row| {
+                    Ok(serde_json::json!({
+                        "name": row.get::<_, String>(0)?,
+                        "role_type": row.get::<_, String>(1)?,
+                        "level": row.get::<_, Option<String>>(2)?,
+                        "emotion": row.get::<_, Option<String>>(3)?,
+                        "goal": row.get::<_, Option<String>>(4)?,
+                    }))
+                })
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
         }
         _ => Vec::new(),
     };

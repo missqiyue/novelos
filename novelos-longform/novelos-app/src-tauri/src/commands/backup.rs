@@ -21,7 +21,9 @@ pub fn create_backup(app: AppHandle, db: State<'_, DbState>) -> Result<BackupInf
         return Err("Project database not found".to_string());
     }
 
-    let backup_dir = app.path().app_data_dir()
+    let backup_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("novelos")
         .join("backups")
@@ -62,7 +64,9 @@ pub fn create_backup(app: AppHandle, db: State<'_, DbState>) -> Result<BackupInf
 #[tauri::command]
 pub fn list_backups(app: AppHandle, db: State<'_, DbState>) -> Result<Vec<BackupInfo>, String> {
     let project_id = db.current_project_id().ok_or("No project open")?;
-    let backup_dir = app.path().app_data_dir()
+    let backup_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("novelos")
         .join("backups")

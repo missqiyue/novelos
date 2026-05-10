@@ -45,7 +45,11 @@ pub fn start_writing_session(
 
     conn.execute(
         "INSERT OR REPLACE INTO project_settings (project_id, key, value) VALUES (?1, ?2, ?3)",
-        rusqlite::params![project_id, format!("session_start_wc_{}", id), input.start_word_count.to_string()],
+        rusqlite::params![
+            project_id,
+            format!("session_start_wc_{}", id),
+            input.start_word_count.to_string()
+        ],
     )
     .map_err(|e| e.to_string())?;
 

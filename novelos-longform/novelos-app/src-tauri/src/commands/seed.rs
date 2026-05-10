@@ -33,14 +33,86 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
         // 2. Volumes
         let volumes = [
-            (1, "星火初燃", 1, 12, "凡人林凡觉醒星辰之力，踏上修仙之路", "宗门试炼中遭遇暗算，被迫越级挑战", "生死之间星辰之力彻底觉醒，跨境界击败强敌", "声名鹊起，但也引来了更大的觊觎"),
-            (2, "宗门风云", 13, 28, "在青云宗站稳脚跟，建立自己的势力班底", "宗门内部派系斗争，外门长老图谋星辰传承", "宗门大比中力压群雄，揭露长老阴谋", "获得进入秘境资格，成为宗门核心弟子"),
-            (3, "秘境惊变", 29, 44, "探索上古秘境，揭开星辰之力来源", "秘境中的上古禁制、同门背叛、异族遭遇", "找到星辰传承完整功法，击败秘境守护者", "得知上古大劫预言，肩负起应劫使命"),
-            (4, "乱世崛起", 45, 60, "大劫征兆显现，林凡整合各方势力", "各方势力明争暗斗、上古魔修复苏", "联合各方势力建立抗魔联盟", "修为突破至大乘期，为最终之战做准备"),
-            (5, "星辰之战", 61, 72, "与上古魔修的终极对决", "魔修大军压境、联盟内部出现叛徒", "星辰之力完全觉醒，以自身为阵眼封印魔祖", "封印成功但林凡陷入沉睡"),
-            (6, "破而后立", 73, 82, "沉睡百年后的世界——林凡苏醒在一个陌生的世界", "旧日同伴离散、新的威胁浮现、星辰之力变化", "重新掌握变异的星辰之力，找到昔日的同伴", "揭示星辰之力在沉睡期间发生的根本变化"),
-            (7, "因果溯源", 83, 94, "追溯星辰之力的真正源头——来自另一个宇宙的馈赠", "跨宇宙势力的介入、星辰本源意志的考验", "通过本源考验，获得宇宙意志的认可", "明白真正的敌人来自宇宙之外的虚空"),
-            (8, "永恒星辰", 95, 105, "最终之战：保卫这片宇宙免受虚空侵蚀", "虚空大军入侵、宇宙壁垒破碎、众神陨落", "以星辰本源为核心重塑宇宙壁垒", "成为新一代星辰掌控者，守护宇宙安宁"),
+            (
+                1,
+                "星火初燃",
+                1,
+                12,
+                "凡人林凡觉醒星辰之力，踏上修仙之路",
+                "宗门试炼中遭遇暗算，被迫越级挑战",
+                "生死之间星辰之力彻底觉醒，跨境界击败强敌",
+                "声名鹊起，但也引来了更大的觊觎",
+            ),
+            (
+                2,
+                "宗门风云",
+                13,
+                28,
+                "在青云宗站稳脚跟，建立自己的势力班底",
+                "宗门内部派系斗争，外门长老图谋星辰传承",
+                "宗门大比中力压群雄，揭露长老阴谋",
+                "获得进入秘境资格，成为宗门核心弟子",
+            ),
+            (
+                3,
+                "秘境惊变",
+                29,
+                44,
+                "探索上古秘境，揭开星辰之力来源",
+                "秘境中的上古禁制、同门背叛、异族遭遇",
+                "找到星辰传承完整功法，击败秘境守护者",
+                "得知上古大劫预言，肩负起应劫使命",
+            ),
+            (
+                4,
+                "乱世崛起",
+                45,
+                60,
+                "大劫征兆显现，林凡整合各方势力",
+                "各方势力明争暗斗、上古魔修复苏",
+                "联合各方势力建立抗魔联盟",
+                "修为突破至大乘期，为最终之战做准备",
+            ),
+            (
+                5,
+                "星辰之战",
+                61,
+                72,
+                "与上古魔修的终极对决",
+                "魔修大军压境、联盟内部出现叛徒",
+                "星辰之力完全觉醒，以自身为阵眼封印魔祖",
+                "封印成功但林凡陷入沉睡",
+            ),
+            (
+                6,
+                "破而后立",
+                73,
+                82,
+                "沉睡百年后的世界——林凡苏醒在一个陌生的世界",
+                "旧日同伴离散、新的威胁浮现、星辰之力变化",
+                "重新掌握变异的星辰之力，找到昔日的同伴",
+                "揭示星辰之力在沉睡期间发生的根本变化",
+            ),
+            (
+                7,
+                "因果溯源",
+                83,
+                94,
+                "追溯星辰之力的真正源头——来自另一个宇宙的馈赠",
+                "跨宇宙势力的介入、星辰本源意志的考验",
+                "通过本源考验，获得宇宙意志的认可",
+                "明白真正的敌人来自宇宙之外的虚空",
+            ),
+            (
+                8,
+                "永恒星辰",
+                95,
+                105,
+                "最终之战：保卫这片宇宙免受虚空侵蚀",
+                "虚空大军入侵、宇宙壁垒破碎、众神陨落",
+                "以星辰本源为核心重塑宇宙壁垒",
+                "成为新一代星辰掌控者，守护宇宙安宁",
+            ),
         ];
 
         for (num, title, start_ch, end_ch, goal, conflict, climax, settlement) in &volumes {
@@ -53,12 +125,54 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
         // 3. Characters
         let characters = [
-            ("林凡", "protagonist", "星辰传承者、青云宗核心弟子", "正直坚韧、重情重义、杀伐果断", "守护所爱之人、揭开星辰之力的全部奥秘", r#"{"matched_template":"热血少年","customization":{"personality":{"core":"正直坚韧","growth":"从懵懂少年到宇宙守护者","flaw":"过度重情有时影响判断"},"speech":{"tone":"坚定有力，偶尔幽默","pattern":"短句为主，关键时刻庄重","catchphrase":"星辰不灭，我便不灭"},"behavior":{"decision":"直觉+理性结合","fight_style":"以星辰之力为主，灵活多变","stress_response":"越挫越勇"}},"speech_examples":["星辰不灭，我便不灭。","修仙之路，本就是用命去搏那一线生机。","你说的都对，但我不听。"]}"#),
-            ("苏婉清", "supporting", "天璇圣女转世、林凡的修仙引路人", "外表清冷内心温热、博学睿智", "以知识辅助林凡成长、解开上古秘辛", r#"{"matched_template":"温婉佳人","customization":{"personality":{"core":"外表清冷内心温热","growth":"从旁观者到主动参与者","flaw":"过于理性有时显得冷漠"},"speech":{"tone":"轻柔但一针见血","pattern":"长句为主，引经据典","catchphrase":"命运在你自己手中"},"behavior":{"decision":"理性分析为主","fight_style":"以阵法符箓为主","stress_response":"冷静分析局势"}},"speech_examples":["命运在你自己手中，我只是指路人。","你总是这样莽撞，不过……效果还不错。","这件事，恐怕没那么简单。"]}"#),
-            ("莫问天", "antagonist", "前星辰守护者、堕入魔道的上古强者", "野心勃勃、智谋深沉、有着扭曲的正义观", "以极端方式重塑宇宙秩序", r#"{"matched_template":"疯批反派","customization":{"personality":{"core":"野心勃勃但初衷良善","growth":"从守护者到毁灭者","flaw":"手段过于极端"},"speech":{"tone":"低沉威严、充满蛊惑力","pattern":"反问句+哲理性宣言","catchphrase":"你什么都不懂"},"behavior":{"decision":"目的正当化手段","fight_style":"魔道功法+残留星辰之力","stress_response":"更加激进"}},"speech_examples":["你什么都不懂，守护需要代价。","这宇宙本就在走向灭亡，我只是加速了它。","你和我，本质上是同一类人。"]}"#),
-            ("铁无双", "supporting", "炼器宗师、林凡的兄弟", "豪爽直率、重义气、大智若愚", "以炼器之道支持林凡、找到上古神器炼制之法", r#"{"matched_template":"忠义之士","customization":{"personality":{"core":"豪爽直率","growth":"从打铁匠到炼器宗师","flaw":"过于直率容易中计"},"speech":{"tone":"粗犷豪迈、直来直去","pattern":"简单直接、带方言色彩","catchphrase":"瞧好吧您！"},"behavior":{"decision":"直觉+义气优先","fight_style":"以力破巧、重型兵器","stress_response":"更猛烈的进攻"}},"speech_examples":["瞧好吧您！这把剑，保管让林凡那小子满意。","俺不懂那些弯弯绕绕的，但俺知道对错。"]}"#),
-            ("灵曦", "supporting", "秘境中苏醒的上古仙灵", "天真好奇、有着古老的智慧碎片", "找回完整记忆、探索自己的身份", r#"{"matched_template":"妖魅邪修","customization":{"personality":{"core":"天真与古老智慧的矛盾体","growth":"从迷茫到找到自我","flaw":"记忆碎片导致判断不稳定"},"speech":{"tone":"时而天真时而深沉","pattern":"跳跃式、偶尔冒出古老箴言","catchphrase":"我记得……不对，我好像忘了"},"behavior":{"decision":"直觉主导","fight_style":"仙灵之力、辅助治疗","stress_response":"会爆发出古老力量"}},"speech_examples":["我记得……不对，我好像忘了。","千万年前，我也曾站在和你一样的位置。","小花说今天不宜战斗，我们换个方式吧。"]}"#),
-            ("虚空使徒", "villain", "来自宇宙之外的虚空入侵者", "无情感、集体意识、只为吞噬", "将这片宇宙化为虚空的一部分", r#"{"matched_template":"冷面强者","customization":{"personality":{"core":"绝对理性无情感","growth":"从单纯入侵到开始理解这片宇宙","flaw":"不理解个体情感的价值"},"speech":{"tone":"机械冷漠、整齐划一","pattern":"简短陈述句","catchphrase":"抵抗毫无意义"},"behavior":{"decision":"最优策略计算","fight_style":"虚空之力、吞噬同化","stress_response":"召唤更多虚空生物"}},"speech_examples":["抵抗毫无意义。","你们的个体性就是一种缺陷。","我们在拯救你们，将你们从存在中解脱。"]}"#),
+            (
+                "林凡",
+                "protagonist",
+                "星辰传承者、青云宗核心弟子",
+                "正直坚韧、重情重义、杀伐果断",
+                "守护所爱之人、揭开星辰之力的全部奥秘",
+                r#"{"matched_template":"热血少年","customization":{"personality":{"core":"正直坚韧","growth":"从懵懂少年到宇宙守护者","flaw":"过度重情有时影响判断"},"speech":{"tone":"坚定有力，偶尔幽默","pattern":"短句为主，关键时刻庄重","catchphrase":"星辰不灭，我便不灭"},"behavior":{"decision":"直觉+理性结合","fight_style":"以星辰之力为主，灵活多变","stress_response":"越挫越勇"}},"speech_examples":["星辰不灭，我便不灭。","修仙之路，本就是用命去搏那一线生机。","你说的都对，但我不听。"]}"#,
+            ),
+            (
+                "苏婉清",
+                "supporting",
+                "天璇圣女转世、林凡的修仙引路人",
+                "外表清冷内心温热、博学睿智",
+                "以知识辅助林凡成长、解开上古秘辛",
+                r#"{"matched_template":"温婉佳人","customization":{"personality":{"core":"外表清冷内心温热","growth":"从旁观者到主动参与者","flaw":"过于理性有时显得冷漠"},"speech":{"tone":"轻柔但一针见血","pattern":"长句为主，引经据典","catchphrase":"命运在你自己手中"},"behavior":{"decision":"理性分析为主","fight_style":"以阵法符箓为主","stress_response":"冷静分析局势"}},"speech_examples":["命运在你自己手中，我只是指路人。","你总是这样莽撞，不过……效果还不错。","这件事，恐怕没那么简单。"]}"#,
+            ),
+            (
+                "莫问天",
+                "antagonist",
+                "前星辰守护者、堕入魔道的上古强者",
+                "野心勃勃、智谋深沉、有着扭曲的正义观",
+                "以极端方式重塑宇宙秩序",
+                r#"{"matched_template":"疯批反派","customization":{"personality":{"core":"野心勃勃但初衷良善","growth":"从守护者到毁灭者","flaw":"手段过于极端"},"speech":{"tone":"低沉威严、充满蛊惑力","pattern":"反问句+哲理性宣言","catchphrase":"你什么都不懂"},"behavior":{"decision":"目的正当化手段","fight_style":"魔道功法+残留星辰之力","stress_response":"更加激进"}},"speech_examples":["你什么都不懂，守护需要代价。","这宇宙本就在走向灭亡，我只是加速了它。","你和我，本质上是同一类人。"]}"#,
+            ),
+            (
+                "铁无双",
+                "supporting",
+                "炼器宗师、林凡的兄弟",
+                "豪爽直率、重义气、大智若愚",
+                "以炼器之道支持林凡、找到上古神器炼制之法",
+                r#"{"matched_template":"忠义之士","customization":{"personality":{"core":"豪爽直率","growth":"从打铁匠到炼器宗师","flaw":"过于直率容易中计"},"speech":{"tone":"粗犷豪迈、直来直去","pattern":"简单直接、带方言色彩","catchphrase":"瞧好吧您！"},"behavior":{"decision":"直觉+义气优先","fight_style":"以力破巧、重型兵器","stress_response":"更猛烈的进攻"}},"speech_examples":["瞧好吧您！这把剑，保管让林凡那小子满意。","俺不懂那些弯弯绕绕的，但俺知道对错。"]}"#,
+            ),
+            (
+                "灵曦",
+                "supporting",
+                "秘境中苏醒的上古仙灵",
+                "天真好奇、有着古老的智慧碎片",
+                "找回完整记忆、探索自己的身份",
+                r#"{"matched_template":"妖魅邪修","customization":{"personality":{"core":"天真与古老智慧的矛盾体","growth":"从迷茫到找到自我","flaw":"记忆碎片导致判断不稳定"},"speech":{"tone":"时而天真时而深沉","pattern":"跳跃式、偶尔冒出古老箴言","catchphrase":"我记得……不对，我好像忘了"},"behavior":{"decision":"直觉主导","fight_style":"仙灵之力、辅助治疗","stress_response":"会爆发出古老力量"}},"speech_examples":["我记得……不对，我好像忘了。","千万年前，我也曾站在和你一样的位置。","小花说今天不宜战斗，我们换个方式吧。"]}"#,
+            ),
+            (
+                "虚空使徒",
+                "villain",
+                "来自宇宙之外的虚空入侵者",
+                "无情感、集体意识、只为吞噬",
+                "将这片宇宙化为虚空的一部分",
+                r#"{"matched_template":"冷面强者","customization":{"personality":{"core":"绝对理性无情感","growth":"从单纯入侵到开始理解这片宇宙","flaw":"不理解个体情感的价值"},"speech":{"tone":"机械冷漠、整齐划一","pattern":"简短陈述句","catchphrase":"抵抗毫无意义"},"behavior":{"decision":"最优策略计算","fight_style":"虚空之力、吞噬同化","stress_response":"召唤更多虚空生物"}},"speech_examples":["抵抗毫无意义。","你们的个体性就是一种缺陷。","我们在拯救你们，将你们从存在中解脱。"]}"#,
+            ),
         ];
 
         for (name, role, identity, persona, motivation, soul) in &characters {
@@ -71,7 +185,10 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
         // 4. Chapters (first 3 with draft content)
         let chapters = [
-            (1, "星辰觉醒", r#"夕阳如血，将青云宗外门弟子的居所染成了一片昏黄。
+            (
+                1,
+                "星辰觉醒",
+                r#"夕阳如血，将青云宗外门弟子的居所染成了一片昏黄。
 
 林凡盘坐在自己那间简陋的石屋中，闭目凝神，双手掐诀。灵气在体内缓缓流转，却在抵达丹田时诡异地消散无踪。
 
@@ -131,8 +248,12 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
 在这个普通的黄昏，三万年的因果找到了这一世的传承者。
 
-星辰的故事，就此开始。"#),
-            (2, "试炼之路", r#"三天后，林凡站在宗门试炼台的入口处。
+星辰的故事，就此开始。"#,
+            ),
+            (
+                2,
+                "试炼之路",
+                r#"三天后，林凡站在宗门试炼台的入口处。
 
 练气九层巅峰——这个消息以惊人的速度传遍了整个外门。王执事亲自登门，态度发生了翻天覆地的变化。三年来无人问津的少年，一夜之间成了众人瞩目的焦点。
 
@@ -198,8 +319,12 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
 一股强大的威压从石碑中释放而出。
 
-林凡握紧了剑柄。他的战斗，才刚刚开始。"#),
-            (3, "力挽狂澜", r#"试炼第七天。
+林凡握紧了剑柄。他的战斗，才刚刚开始。"#,
+            ),
+            (
+                3,
+                "力挽狂澜",
+                r#"试炼第七天。
 
 林凡站在最后一道关卡前。
 
@@ -279,7 +404,8 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
 因为三万年前那个被封印的上古魔修——莫问天，即将苏醒。
 
-而林凡，还对此一无所知。"#),
+而林凡，还对此一无所知。"#,
+            ),
         ];
 
         for (num, title, draft) in &chapters {
@@ -316,11 +442,41 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
 
         // 6. Foreshadow items
         let foreshadows = [
-            (1, "掌心的星芒", "林凡是星辰传承第三万六千代传人", "planted", 8),
-            (3, "莫问天的苏醒", "三万年前被封印的魔修正将苏醒", "planted", 5),
-            (2, "苏婉清的身份", "天璇圣女转世，前世的记忆碎片散落在各大秘境中", "planted", 6),
-            (1, "虚空之外的注视", "虚空势力在暗中观察星辰传承者", "planted", 7),
-            (2, "铁无双的锻造天赋", "铁无双实际上拥有上古炼器师的隐性传承", "planted", 4),
+            (
+                1,
+                "掌心的星芒",
+                "林凡是星辰传承第三万六千代传人",
+                "planted",
+                8,
+            ),
+            (
+                3,
+                "莫问天的苏醒",
+                "三万年前被封印的魔修正将苏醒",
+                "planted",
+                5,
+            ),
+            (
+                2,
+                "苏婉清的身份",
+                "天璇圣女转世，前世的记忆碎片散落在各大秘境中",
+                "planted",
+                6,
+            ),
+            (
+                1,
+                "虚空之外的注视",
+                "虚空势力在暗中观察星辰传承者",
+                "planted",
+                7,
+            ),
+            (
+                2,
+                "铁无双的锻造天赋",
+                "铁无双实际上拥有上古炼器师的隐性传承",
+                "planted",
+                4,
+            ),
         ];
 
         for (seed_ch, title, condition, status, importance) in &foreshadows {
@@ -352,7 +508,11 @@ pub fn create_sample_project(app: AppHandle, db: State<'_, DbState>) -> Result<S
         {
             let global_conn = db.global.lock().map_err(|e| e.to_string())?;
             let max_order: i64 = global_conn
-                .query_row("SELECT COALESCE(MAX(display_order), 0) FROM bookshelf", [], |r| r.get(0))
+                .query_row(
+                    "SELECT COALESCE(MAX(display_order), 0) FROM bookshelf",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap_or(0);
             global_conn.execute(
                 "INSERT INTO bookshelf (id, project_id, title, genre_name, status, display_order, created_at) VALUES (?1,?2,?3,?4,'active',?5,?6)",

@@ -311,9 +311,11 @@ export const useChapterStore = create<ChapterState>((set, get) => ({
       await chapterApi.finalize(chapterNumber);
       const chapter = await chapterApi.getChapter(chapterNumber);
       set({ currentChapter: chapter });
+      await get().fetchChapters();
       // RAG index now lives in SQLite — no manual save needed
     } catch (e: any) {
       set({ error: e.toString() });
+      throw e;
     }
   },
   rollback: async (chapterNumber, versionNo) => {
@@ -347,6 +349,7 @@ export const useChapterStore = create<ChapterState>((set, get) => ({
       await get().fetchChapters();
     } catch (e: any) {
       set({ error: e.toString() });
+      throw e;
     }
   },
   fetchValidTransitions: async (chapterNumber) => {
@@ -455,7 +458,7 @@ interface LlmState {
   streamingText: string;
   fetchConfig: () => Promise<void>;
   updateConfig: (updates: Partial<LlmConfig>) => Promise<void>;
-  saveConfigToDb: (config: LlmConfig) => Promise<void>;
+  saveConfigToDb: (config?: LlmConfig) => Promise<void>;
   chat: (messages: { role: string; content: string }[]) => Promise<string | null>;
   chatWithSystem: (systemPrompt: string, userPrompt: string) => Promise<string | null>;
   chatStream: (messages: { role: string; content: string }[]) => Promise<string | null>;
@@ -475,6 +478,19 @@ export const useLlmStore = create<LlmState>((set, get) => ({
   streamingText: "",
   fetchConfig: async () => {
     try {
+      const persistedConfig = await llmApi.loadConfigFromDb();
+      if (persistedConfig) {
+        await llmApi.updateConfig(
+          persistedConfig.provider,
+          persistedConfig.base_url,
+          persistedConfig.api_key,
+          persistedConfig.model,
+          persistedConfig.max_tokens,
+          persistedConfig.temperature,
+          persistedConfig.embedding_provider,
+          persistedConfig.embedding_model,
+        );
+      }
       const config = await llmApi.getConfig();
       set({ config });
     } catch (e: any) {
@@ -490,15 +506,21 @@ export const useLlmStore = create<LlmState>((set, get) => ({
         updates.model,
         updates.max_tokens,
         updates.temperature,
+        updates.embedding_provider,
+        updates.embedding_model,
       );
       set({ config });
     } catch (e: any) {
       set({ error: e.toString() });
     }
   },
-  saveConfigToDb: async (config: LlmConfig) => {
+  saveConfigToDb: async (config?: LlmConfig) => {
     try {
-      await llmApi.saveConfigToDb(config);
+      if (config) {
+        await llmApi.saveConfigToDb(config);
+      } else {
+        await llmApi.saveRuntimeConfigToDb();
+      }
     } catch (e: any) {
       set({ error: e.toString() });
     }
@@ -658,8 +680,13 @@ interface RagState {
   error: string | null;
   fetchStats: () => Promise<void>;
   search: (query: string, topK?: number) => Promise<import("../lib/api").SimilarChapterResult[]>;
-  semanticRecall: (queryText: string, topK?: number, intent?: import("../lib/api").RagIntentFilter) => Promise<import("../lib/api").RagSemanticRecallItem[]>;
+  semanticRecall: (
+    queryText: string,
+    topK?: number,
+    intent?: import("../lib/api").RagIntentFilter,
+  ) => Promise<import("../lib/api").RagSemanticRecallItem[]>;
   clearIndex: () => Promise<void>;
+  rebuildIndex: () => Promise<IndexStats | null>;
 }
 
 export const useRagStore = create<RagState>((set, get) => ({
@@ -702,5 +729,15 @@ export const useRagStore = create<RagState>((set, get) => ({
       set({ loading: false, error: e.toString() });
     }
   },
-
+  rebuildIndex: async () => {
+    set({ loading: true, error: null });
+    try {
+      const stats = await ragApi.rebuildBookIndex();
+      set({ stats, loading: false });
+      return stats;
+    } catch (e: any) {
+      set({ loading: false, error: e.toString() });
+      return null;
+    }
+  },
 }));

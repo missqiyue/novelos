@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useLlmStore, useProjectStore } from "../../stores";
+import { useNavigate, useParams } from "react-router-dom";
+import { useLlmStore, useProjectStore, useRagStore } from "../../stores";
+import { platform } from "../../lib/platform";
+import type { RagRebuildProgressEvent } from "../../lib/api";
 import { checkForUpdate, installUpdate } from "../../lib/updater";
 import type { UpdateInfo } from "../../lib/updater";
 import {
@@ -8,19 +10,26 @@ import {
   Key,
   Save,
   CheckCircle,
-  Shield,
-  Users,
-  BookOpen,
-  Bell,
+  Activity,
   ArrowRight,
   RefreshCw,
   Download,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const { projectId } = useParams();
   const { project, updateProject } = useProjectStore();
   const { config, fetchConfig, updateConfig, saveConfigToDb } = useLlmStore();
+  const {
+    stats: ragStats,
+    loading: ragLoading,
+    error: ragError,
+    fetchStats,
+    rebuildIndex,
+  } = useRagStore();
   const [provider, setProvider] = useState("openai");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -29,18 +38,28 @@ export function SettingsPage() {
   const [temperature, setTemperature] = useState(0.7);
   const [embeddingProvider, setEmbeddingProvider] = useState("");
   const [embeddingModel, setEmbeddingModel] = useState("");
+  const [hasSavedApiKey, setHasSavedApiKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
+  const [ragMessage, setRagMessage] = useState("");
+  const [showRagConfirm, setShowRagConfirm] = useState(false);
+  const [ragProgress, setRagProgress] = useState<RagRebuildProgressEvent | null>(null);
 
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
 
   useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  useEffect(() => {
     if (config) {
       setProvider(config.provider);
       setBaseUrl(config.base_url);
-      setApiKey(config.api_key);
+      const maskedApiKey = config.api_key.startsWith("****");
+      setApiKey("");
+      setHasSavedApiKey(maskedApiKey || config.api_key.length > 0);
       setModel(config.model);
       setMaxTokens(config.max_tokens);
       setTemperature(config.temperature);
@@ -55,27 +74,52 @@ export function SettingsPage() {
     }
   }, [project]);
 
+  useEffect(() => {
+    if (!platform.isTauri) return;
+
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen<RagRebuildProgressEvent>("rag-rebuild-progress", (event) => {
+          const payload = event.payload;
+          setRagProgress(payload);
+          if (
+            payload.stage === "completed" ||
+            payload.stage === "failed" ||
+            payload.stage === "cancelled"
+          ) {
+            if (payload.message) {
+              setRagMessage(payload.message);
+            }
+          } else if (payload.message) {
+            setRagMessage("");
+          }
+        });
+      } catch {
+        // Not running in Tauri — ignore
+      }
+    })();
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   const handleSaveLlm = async () => {
     await updateConfig({
       provider,
       base_url: baseUrl,
-      api_key: apiKey,
+      api_key: apiKey || undefined,
       model,
       max_tokens: maxTokens,
       temperature,
       embedding_provider: embeddingProvider,
       embedding_model: embeddingModel,
     });
-    await saveConfigToDb({
-      provider,
-      base_url: baseUrl,
-      api_key: apiKey,
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      embedding_provider: embeddingProvider,
-      embedding_model: embeddingModel,
-    });
+    await saveConfigToDb();
+    setApiKey("");
+    setHasSavedApiKey(apiKey.trim().length > 0 || hasSavedApiKey);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -88,6 +132,64 @@ export function SettingsPage() {
     }
   };
 
+  const handleRebuildRag = async () => {
+    setRagMessage("");
+    setRagProgress({
+      stage: "started",
+      current: 0,
+      total: 0,
+      chapter_number: null,
+      message: "准备开始重建...",
+    });
+    const stats = await rebuildIndex();
+    if (stats) {
+      setRagMessage(
+        `重建完成：${stats.total_chapters_indexed} 章，${stats.total_chunks} 个切片`
+      );
+    }
+    setShowRagConfirm(false);
+  };
+
+  const handleCancelRebuildRag = async () => {
+    setRagMessage("正在请求取消重建...");
+    try {
+      const { ragApi } = await import("../../lib/tauri");
+      await ragApi.cancelRebuildBookIndex();
+    } catch {
+      // Ignore cancellation errors in UI; backend event will settle state.
+    }
+  };
+
+  const isRagRebuilding =
+    ragLoading &&
+    ragProgress != null &&
+    ragProgress.stage !== "completed" &&
+    ragProgress.stage !== "failed" &&
+    ragProgress.stage !== "cancelled";
+  const ragPercent =
+    ragProgress && ragProgress.total > 0
+      ? Math.min(100, Math.round((ragProgress.current / ragProgress.total) * 100))
+      : 0;
+  const providerCompatibilityHint = (() => {
+    if (provider !== "anthropic" || !model.trim()) return null;
+
+    const normalizedModel = model.trim().toLowerCase();
+    const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "").toLowerCase();
+
+    if (
+      normalizedModel.startsWith("deepseek") &&
+      !normalizedBaseUrl.includes("api.deepseek.com/anthropic")
+    ) {
+      return "DeepSeek 支持 Anthropic 协议，但 base_url 需要填写 `https://api.deepseek.com/anthropic`。如果你填写的是 `https://api.deepseek.com` 这类 OpenAI 兼容地址，请把 Provider 改成“OpenAI / 兼容API”。";
+    }
+
+    if (!normalizedModel.startsWith("claude") && !normalizedModel.startsWith("deepseek")) {
+      return "当前选择的是 Anthropic Provider，但模型名看起来不是 Claude 或 DeepSeek Anthropic 兼容模型。若你接的是 OpenAI 兼容网关，请改用“OpenAI / 兼容API”。";
+    }
+
+    return null;
+  })();
+
   return (
     <div className="p-6 max-w-2xl">
       <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-4">
@@ -98,24 +200,19 @@ export function SettingsPage() {
       {/* Sub-navigation */}
       <div className="grid grid-cols-2 gap-2 mb-6">
         {[
-          { to: "de-ai-rules", label: "去AI规则", icon: Shield, desc: "管理AI写作痕迹检测规则" },
-          { to: "soul-templates", label: "SOUL模板", icon: Users, desc: "浏览内置角色性格模板库" },
           {
-            to: "genre-templates",
-            label: "题材模板",
-            icon: BookOpen,
-            desc: "浏览内置题材设定模板",
-          },
-          {
-            to: "notification-prefs",
-            label: "通知偏好",
-            icon: Bell,
-            desc: "管理通知类型和推送偏好",
+            to: "agent-logs",
+            label: "运行日志",
+            icon: Activity,
+            desc: "查看 Agent、LLM 与系统事件日志",
           },
         ].map(({ to, label, icon: Icon, desc }) => (
           <button
             key={to}
-            onClick={() => navigate(to)}
+            onClick={() => {
+              if (!projectId) return;
+              navigate(`/project/${projectId}/${to}`);
+            }}
             className="flex items-start gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors text-left"
           >
             <Icon size={18} className="text-indigo-500 mt-0.5 shrink-0" />
@@ -126,6 +223,24 @@ export function SettingsPage() {
             <ArrowRight size={14} className="text-gray-300 ml-auto shrink-0 mt-1" />
           </button>
         ))}
+      </div>
+
+      <div className="mb-6 p-4 rounded-lg border border-indigo-100 bg-indigo-50/60">
+        <p className="text-sm font-medium text-indigo-900">配置入口已调整</p>
+        <p className="text-xs text-indigo-700 mt-1">
+          去AI规则、SOUL模板、题材模板已归入“全局共享资源库”；通知偏好建议从顶部通知铃铛进入。
+        </p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button
+            onClick={() => {
+              if (!projectId) return;
+              navigate(`/project/${projectId}/global-resources`);
+            }}
+            className="px-3 py-1.5 text-xs rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+          >
+            打开全局共享资源库
+          </button>
+        </div>
       </div>
 
       {/* Project Settings */}
@@ -224,9 +339,14 @@ export function SettingsPage() {
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
+              placeholder={hasSavedApiKey ? "已保存 API Key；留空则保持不变" : "sk-..."}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
+            {hasSavedApiKey && (
+              <p className="text-xs text-gray-500 mt-1">
+                当前已存在已保存的 API Key，只有输入新值时才会覆盖。
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">模型</label>
@@ -237,6 +357,11 @@ export function SettingsPage() {
               placeholder="gpt-4o"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
+            {providerCompatibilityHint && (
+              <p className="text-xs text-amber-600 mt-1">
+                {providerCompatibilityHint}
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -304,6 +429,109 @@ export function SettingsPage() {
               </div>
             </div>
           </div>
+          <div className="border-t border-gray-100 pt-4 mt-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">RAG 索引管理</h3>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div>
+                  <div className="text-xs text-gray-500">已索引章节</div>
+                  <div className="font-medium text-gray-900">
+                    {ragStats?.total_chapters_indexed ?? 0}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">切片数</div>
+                  <div className="font-medium text-gray-900">
+                    {ragStats?.total_chunks ?? 0}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">向量数</div>
+                  <div className="font-medium text-gray-900">
+                    {ragStats?.total_vectors ?? 0}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                当你导入旧项目、批量迁移章节，或怀疑索引缺失时，可以手动执行一次全书重建。
+              </p>
+              {ragProgress && (
+                <div className="mb-3 rounded-lg border border-gray-200 bg-white px-3 py-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="text-xs font-medium text-gray-700">
+                      {ragProgress.stage === "completed"
+                        ? "重建完成"
+                        : ragProgress.stage === "cancelled"
+                          ? "已取消"
+                        : ragProgress.stage === "failed"
+                          ? "重建失败"
+                          : "重建进度"}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {ragProgress.total > 0 ? `${ragProgress.current}/${ragProgress.total}` : "--/--"}
+                    </div>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-2">
+                    <div
+                      className={`h-full transition-all ${
+                        ragProgress.stage === "failed"
+                          ? "bg-red-500"
+                          : ragProgress.stage === "cancelled"
+                            ? "bg-amber-500"
+                          : ragProgress.stage === "completed"
+                            ? "bg-green-500"
+                            : "bg-indigo-500"
+                      }`}
+                      style={{ width: `${ragPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-gray-600">
+                      {ragProgress.message || "等待开始..."}
+                    </span>
+                    {ragProgress.chapter_number != null && (
+                      <span className="text-gray-500">第 {ragProgress.chapter_number} 章</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setShowRagConfirm(true)}
+                  disabled={ragLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw size={14} className={ragLoading ? "animate-spin" : ""} />
+                  {ragLoading ? "重建中..." : "全书重建 RAG 索引"}
+                </button>
+                {isRagRebuilding && (
+                  <button
+                    onClick={handleCancelRebuildRag}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg text-sm hover:bg-amber-50"
+                  >
+                    <X size={14} />
+                    取消重建
+                  </button>
+                )}
+                {ragMessage && (
+                  <span
+                    className={`text-xs ${
+                      ragProgress?.stage === "failed"
+                        ? "text-red-600"
+                        : ragProgress?.stage === "cancelled"
+                          ? "text-amber-700"
+                          : "text-green-700"
+                    }`}
+                  >
+                    {ragMessage}
+                  </span>
+                )}
+                {!ragMessage && ragError && (
+                  <span className="text-xs text-red-600">{ragError}</span>
+                )}
+              </div>
+            </div>
+          </div>
           <button
             onClick={handleSaveLlm}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
@@ -319,6 +547,57 @@ export function SettingsPage() {
 
       {/* Update Section */}
       <UpdateSection />
+
+      {showRagConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <AlertTriangle size={20} className="text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">确认重建 RAG 索引</h3>
+                  <p className="text-xs text-gray-500">会遍历当前项目全部章节</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRagConfirm(false)}
+                disabled={isRagRebuilding}
+                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">
+              系统将重新切分并向量化当前项目的所有章节，用于修复旧项目导入、批量迁移或索引缺失问题。
+            </p>
+            <p className="text-xs text-gray-500 mb-6">
+              重建期间可以看到当前处理章节和整体进度。若章节较多，操作可能持续一段时间。
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={isRagRebuilding ? handleCancelRebuildRag : () => setShowRagConfirm(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {isRagRebuilding ? "请求取消" : "取消"}
+              </button>
+              <button
+                onClick={handleRebuildRag}
+                disabled={isRagRebuilding}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900 disabled:opacity-50 transition-colors"
+              >
+                {isRagRebuilding ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                {isRagRebuilding ? "重建中..." : "确认重建"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

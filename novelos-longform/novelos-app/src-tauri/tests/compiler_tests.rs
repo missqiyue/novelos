@@ -19,7 +19,10 @@ mod compiler_tests {
     fn test_word_count_too_few() {
         let ctx = make_context("短文本");
         let result = run_compiler(&ctx);
-        assert!(result.issues.iter().any(|i| i.checker == "WordCountChecker" && i.message.contains("偏少")));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.checker == "WordCountChecker" && i.message.contains("偏少")));
     }
 
     #[test]
@@ -31,7 +34,10 @@ mod compiler_tests {
             ..make_context(&long_text)
         };
         let result = run_compiler(&ctx);
-        assert!(result.issues.iter().any(|i| i.checker == "WordCountChecker" && i.message.contains("偏多")));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.checker == "WordCountChecker" && i.message.contains("偏多")));
     }
 
     #[test]
@@ -56,7 +62,10 @@ mod compiler_tests {
             ..make_context("主角飞天而去，越过了山巅。")
         };
         let result = run_compiler(&ctx);
-        assert!(result.issues.iter().any(|i| i.checker == "CanonChecker" && i.severity == "error"));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.checker == "CanonChecker" && i.severity == "error"));
         assert_eq!(result.status, "fail");
     }
 
@@ -73,7 +82,10 @@ mod compiler_tests {
             ..make_context("这个宗门太卷了，大家都在使用内卷的方式竞争资源。")
         };
         let result = run_compiler(&ctx);
-        assert!(result.issues.iter().any(|i| i.checker == "CanonChecker" && i.severity == "warning"));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.checker == "CanonChecker" && i.severity == "warning"));
     }
 
     #[test]
@@ -88,7 +100,10 @@ mod compiler_tests {
             ..make_context("张三站在山顶，俯瞰着整个青云宗。他说：今天天气不错。")
         };
         let result = run_compiler(&ctx);
-        assert!(result.issues.iter().any(|i| i.checker == "CharacterChecker"));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.checker == "CharacterChecker"));
     }
 
     #[test]
@@ -105,7 +120,10 @@ mod compiler_tests {
             ..make_context("古今多少事，都付笑谈中。")
         };
         let result = run_compiler(&ctx);
-        assert!(result.issues.iter().any(|i| i.checker == "ForeshadowChecker"));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.checker == "ForeshadowChecker"));
     }
 
     #[test]

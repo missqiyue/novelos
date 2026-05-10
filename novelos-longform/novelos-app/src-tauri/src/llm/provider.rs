@@ -6,14 +6,21 @@ pub trait LlmProvider {
         &self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     >;
 
     fn chat_completion_stream(
         self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn Stream<Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>> + Send>,
+        Box<
+            dyn Stream<Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>> + Send,
+        >,
     >
     where
         Self: Sized + Send + 'static;
@@ -24,6 +31,11 @@ pub trait LlmProvider {
         text: &str,
         model: &str,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     >;
 }

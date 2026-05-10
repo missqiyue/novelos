@@ -14,7 +14,9 @@ where
     F: FnOnce(&Connection) -> Result<R, String>,
 {
     let guard = db.project.lock().map_err(|e| e.to_string())?;
-    let conn = guard.as_ref().ok_or_else(|| "No project open".to_string())?;
+    let conn = guard
+        .as_ref()
+        .ok_or_else(|| "No project open".to_string())?;
     f(conn)
 }
 

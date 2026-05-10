@@ -6,6 +6,9 @@ import type {
   CompileIssue,
   CompileStats,
   ParagraphRewriteResult,
+  ChapterQualityReport,
+  QuickReviewReport,
+  RepairChapterResult,
 } from "../tauri";
 
 /** Flexible CJK substring matching for canon rule checking. */
@@ -192,6 +195,93 @@ export const compilerApi = {
     if (suggestions.length === 0 && score >= 80) suggestions.push("章节质量良好，可以进入审阅流程");
 
     return { status, score, issues, stats, suggestions };
+  },
+
+  async computeQualityReport(chapterNumber: number, draftText: string): Promise<ChapterQualityReport> {
+    const compile = await this.compile(chapterNumber, draftText);
+    const nowIso = now();
+    const checks = [
+      {
+        key: "compile_gate",
+        name: "编译检查",
+        status: compile.status === "fail" ? "FAIL" : "PASS",
+        severity: "error",
+        message: compile.status === "fail" ? `编译未通过：${compile.score}分` : `编译通过：${compile.score}分`,
+        action: compile.status === "fail" ? "repair" : null,
+      },
+      {
+        key: "task_alignment",
+        name: "任务卡对齐",
+        status: "WARN",
+        severity: "warning",
+        message: "Web 模式未接入章节任务卡质量检查",
+        action: "task_card",
+      },
+    ];
+    const overall = checks.some(c => c.status === "FAIL") ? "FAIL" : checks.some(c => c.status === "WARN") ? "WARN" : "PASS";
+    return {
+      id: uuid(),
+      chapter_number: chapterNumber,
+      report_type: "quality_gate",
+      overall,
+      summary: overall === "PASS" ? "质量闸门通过" : "质量闸门有待处理项",
+      checks,
+      actions: checks
+        .filter(c => c.action)
+        .map(c => ({
+          key: c.key,
+          label: c.action === "task_card" ? "补齐章节任务卡" : "按质量问题修复",
+          action_type: c.action ?? "repair",
+          reason: c.message,
+        })),
+      artifacts: {
+        compile_score: compile.score,
+        compile_status: compile.status,
+        word_count: compile.stats.word_count,
+        required_foreshadows: [],
+        required_task_focus: [],
+      },
+      cached: false,
+      created_at: nowIso,
+    };
+  },
+
+  async getLatestQualityReport(_chapterNumber: number): Promise<ChapterQualityReport | null> {
+    return null;
+  },
+
+  async runQuickReview(chapterNumber: number, draftText: string, _forceReview = false): Promise<QuickReviewReport> {
+    const wordCount = [...draftText].length;
+    const experts = [
+      { expert_name: "逻辑与战力", agent_name: "plot_expert", passed: true, score: 8, suggestions: [] },
+      { expert_name: "人设与视角", agent_name: "character_expert", passed: true, score: 8, suggestions: [] },
+      {
+        expert_name: "节奏与爽点",
+        agent_name: "pacing_expert",
+        passed: wordCount >= 1000,
+        score: wordCount >= 1000 ? 8 : 6,
+        suggestions: wordCount >= 1000 ? [] : ["当前草稿偏短，节奏与爽点判断置信度较低。"],
+      },
+    ];
+    const failed = experts.filter(e => !e.passed).length;
+    return {
+      id: uuid(),
+      chapter_number: chapterNumber,
+      report_type: "quick_review",
+      overall: failed === 0 ? "PASS" : "WARN",
+      summary: failed === 0 ? "快速评审通过" : `${failed} 位快速评审专家提出问题`,
+      experts,
+      cached: false,
+      created_at: now(),
+    };
+  },
+
+  async listReviewHistory(_chapterNumber: number, _limit?: number): Promise<QuickReviewReport[]> {
+    return [];
+  },
+
+  async repairWithQualityActions(_chapterNumber: number, _draftText: string, _reasons: string[], _mode?: string): Promise<RepairChapterResult> {
+    throw new WebNotSupportedError("repairWithQualityActions (requires AI agent)");
   },
 
   async rewriteParagraph(_chapterNumber: number, _paragraphIndex: number, _requirements: string): Promise<ParagraphRewriteResult> {

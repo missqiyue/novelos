@@ -1,4 +1,5 @@
 use crate::commands::agent::run_agent;
+use crate::commands::chapter::sync_chapter_rag;
 use crate::commands::compiler::do_compile;
 use crate::commands::llm::LlmState;
 use crate::db::DbState;
@@ -44,12 +45,19 @@ pub async fn start_reader_feedback_workflow(
         let mut stmt = conn.prepare(
             "SELECT id, content, source, sentiment, cluster_id FROM reader_comments WHERE project_id = ?1 AND status = 'new' ORDER BY created_at DESC"
         ).map_err(|e| e.to_string())?;
-        let rows: Vec<_> = stmt.query_map(rusqlite::params![project_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        let rows: Vec<_> = stmt
+            .query_map(rusqlite::params![project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
         rows
     };
 
@@ -65,12 +73,20 @@ pub async fn start_reader_feedback_workflow(
     }
 
     // Build comments text for the agent
-    let comments_text: String = comment_rows.iter()
+    let comments_text: String = comment_rows
+        .iter()
         .enumerate()
         .map(|(i, (_id, content, source, sentiment, cluster))| {
             let sent = sentiment.as_deref().unwrap_or("unknown");
             let cl = cluster.as_deref().unwrap_or("-");
-            format!("[{}] (来源:{} 情感:{} 群组:{}) {}", i + 1, source, sent, cl, content)
+            format!(
+                "[{}] (来源:{} 情感:{} 群组:{}) {}",
+                i + 1,
+                source,
+                sent,
+                cl,
+                content
+            )
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -90,7 +106,13 @@ pub async fn start_reader_feedback_workflow(
     vars.insert("comments".to_string(), comments_text);
     vars.insert("characters".to_string(), characters);
 
-    let result = run_agent(llm_state.clone(), db.clone(), "comment_analyzer".to_string(), vars).await?;
+    let result = run_agent(
+        llm_state.clone(),
+        db.clone(),
+        "comment_analyzer".to_string(),
+        vars,
+    )
+    .await?;
 
     // Parse the analysis output
     let (revision_tasks, overall_sentiment, summary) = parse_comment_analysis(&result.content);
@@ -157,7 +179,10 @@ pub async fn execute_feedback_revision(
     let revision_mode = mode.unwrap_or_else(|| "repair".to_string());
     let valid_modes = ["repair", "compress", "hook_up", "voice_fix"];
     if !valid_modes.contains(&revision_mode.as_str()) {
-        return Err(format!("Invalid mode '{}'. Must be one of: repair, compress, hook_up, voice_fix", revision_mode));
+        return Err(format!(
+            "Invalid mode '{}'. Must be one of: repair, compress, hook_up, voice_fix",
+            revision_mode
+        ));
     }
 
     // Load current chapter draft
@@ -168,7 +193,8 @@ pub async fn execute_feedback_revision(
             "SELECT draft_text FROM chapters WHERE chapter_number = ?1",
             [chapter_number],
             |row| row.get::<_, String>(0),
-        ).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?
     };
 
     // Load canon rules and soul refs for rewrite context
@@ -183,7 +209,13 @@ pub async fn execute_feedback_revision(
     vars.insert("canon_rules".to_string(), canon_rules);
     vars.insert("soul_refs".to_string(), soul_refs);
 
-    let result = run_agent(llm_state.clone(), db.clone(), "rewrite_agent".to_string(), vars).await?;
+    let result = run_agent(
+        llm_state.clone(),
+        db.clone(),
+        "rewrite_agent".to_string(),
+        vars,
+    )
+    .await?;
 
     // Parse rewrite output: text before "---", changes JSON after
     let (new_text, changes) = parse_rewrite_output(&result.content);
@@ -208,6 +240,8 @@ pub async fn execute_feedback_revision(
             rusqlite::params![version_id, project_id, chapter_number, new_text, word_count, now],
         );
     }
+
+    sync_chapter_rag(&db, &llm_state, chapter_number).await?;
 
     // Re-compile the revised chapter
     let compile_result = {
@@ -235,19 +269,24 @@ pub async fn execute_feedback_revision(
 fn get_chapter_summary(db: &DbState, chapter_number: i64) -> Result<String, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
-    let draft: String = conn.query_row(
-        "SELECT COALESCE(draft_text, '') FROM chapters WHERE chapter_number = ?1",
-        [chapter_number],
-        |row| row.get(0),
-    ).unwrap_or_default();
+    let draft: String = conn
+        .query_row(
+            "SELECT COALESCE(draft_text, '') FROM chapters WHERE chapter_number = ?1",
+            [chapter_number],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
     Ok(draft.chars().take(500).collect())
 }
 
 fn get_character_names(db: &DbState) -> Result<String, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
-    let mut stmt = conn.prepare("SELECT name FROM characters WHERE status = 'active'").map_err(|e| e.to_string())?;
-    let names: Vec<String> = stmt.query_map([], |row| row.get(0))
+    let mut stmt = conn
+        .prepare("SELECT name FROM characters WHERE status = 'active'")
+        .map_err(|e| e.to_string())?;
+    let names: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
@@ -257,15 +296,24 @@ fn get_character_names(db: &DbState) -> Result<String, String> {
 fn get_canon_rules_text(db: &DbState) -> Result<String, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
-    let mut stmt = conn.prepare("SELECT rule_name, content, is_hard FROM canon_rules WHERE status = 'active'").map_err(|e| e.to_string())?;
-    let rules: Vec<String> = stmt.query_map([], |row| {
-        let name: String = row.get(0)?;
-        let content: String = row.get(1)?;
-        let hard: bool = row.get::<_, i64>(2)? != 0;
-        Ok(format!("[{}] {}: {}", if hard { "硬" } else { "软" }, name, content))
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    let mut stmt = conn
+        .prepare("SELECT rule_name, content, is_hard FROM canon_rules WHERE status = 'active'")
+        .map_err(|e| e.to_string())?;
+    let rules: Vec<String> = stmt
+        .query_map([], |row| {
+            let name: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            let hard: bool = row.get::<_, i64>(2)? != 0;
+            Ok(format!(
+                "[{}] {}: {}",
+                if hard { "硬" } else { "软" },
+                name,
+                content
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(rules.join("\n"))
 }
 
@@ -273,45 +321,81 @@ fn get_soul_refs_text(db: &DbState) -> Result<String, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let mut stmt = conn.prepare("SELECT name, soul_json FROM characters WHERE status = 'active' AND soul_json != '{}' AND soul_json != ''").map_err(|e| e.to_string())?;
-    let refs: Vec<String> = stmt.query_map([], |row| {
-        let name: String = row.get(0)?;
-        let soul: String = row.get(1)?;
-        Ok(format!("{}: {}", name, soul.chars().take(300).collect::<String>()))
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    let refs: Vec<String> = stmt
+        .query_map([], |row| {
+            let name: String = row.get(0)?;
+            let soul: String = row.get(1)?;
+            Ok(format!(
+                "{}: {}",
+                name,
+                soul.chars().take(300).collect::<String>()
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(refs.join("\n"))
 }
 
-fn parse_comment_analysis(content: &str) -> (Vec<FeedbackRevisionTask>, Option<String>, Option<String>) {
+fn parse_comment_analysis(
+    content: &str,
+) -> (Vec<FeedbackRevisionTask>, Option<String>, Option<String>) {
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
-        let overall_sentiment = value.get("overall_sentiment")
+        let overall_sentiment = value
+            .get("overall_sentiment")
             .and_then(|v| v.get("dominant_sentiment"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let summary = value.get("summary")
+        let summary = value
+            .get("summary")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let tasks: Vec<FeedbackRevisionTask> = value.get("suggested_revisions")
+        let tasks: Vec<FeedbackRevisionTask> = value
+            .get("suggested_revisions")
             .and_then(|v| v.as_array())
             .map(|arr| {
-                arr.iter().filter_map(|item| {
-                    let target = item.get("target").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let issue = item.get("issue").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let suggestion = item.get("suggestion").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let priority = item.get("priority").and_then(|v| v.as_str()).unwrap_or("medium").to_string();
-                    let based_on = item.get("based_on_comments").and_then(|v| v.as_i64()).unwrap_or(0);
-                    if !target.is_empty() {
-                        Some(FeedbackRevisionTask {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            target, issue, suggestion, priority, based_on_comments: based_on,
-                        })
-                    } else {
-                        None
-                    }
-                }).collect()
+                arr.iter()
+                    .filter_map(|item| {
+                        let target = item
+                            .get("target")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let issue = item
+                            .get("issue")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let suggestion = item
+                            .get("suggestion")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let priority = item
+                            .get("priority")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("medium")
+                            .to_string();
+                        let based_on = item
+                            .get("based_on_comments")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+                        if !target.is_empty() {
+                            Some(FeedbackRevisionTask {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                target,
+                                issue,
+                                suggestion,
+                                priority,
+                                based_on_comments: based_on,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -327,19 +411,34 @@ fn parse_rewrite_output(content: &str) -> (String, Vec<RevisionChange>) {
         let text_part = content[..sep_idx].trim().to_string();
         let json_part = &content[sep_idx..];
 
-        let changes: Vec<RevisionChange> = serde_json::from_str::<serde_json::Value>(json_part.trim_start_matches('-').trim())
-            .ok()
-            .and_then(|v| v.get("changes").and_then(|c| c.as_array()).cloned())
-            .map(|arr| {
-                arr.iter().filter_map(|item| {
-                    Some(RevisionChange {
-                        location: item.get("location").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        reason: item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        what_changed: item.get("what_changed").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    })
-                }).collect()
-            })
-            .unwrap_or_default();
+        let changes: Vec<RevisionChange> =
+            serde_json::from_str::<serde_json::Value>(json_part.trim_start_matches('-').trim())
+                .ok()
+                .and_then(|v| v.get("changes").and_then(|c| c.as_array()).cloned())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| {
+                            Some(RevisionChange {
+                                location: item
+                                    .get("location")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                reason: item
+                                    .get("reason")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                what_changed: item
+                                    .get("what_changed")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
 
         return (text_part, changes);
     }

@@ -13,5 +13,11 @@ export const ragApi = {
   async getIndexStats(): Promise<IndexStats> {
     return { total_chapters_indexed: 0, total_chunks: 0, total_vectors: 0 };
   },
+  async rebuildBookIndex(): Promise<IndexStats> {
+    return { total_chapters_indexed: 0, total_chunks: 0, total_vectors: 0 };
+  },
+  async cancelRebuildBookIndex(): Promise<boolean> {
+    return false;
+  },
 
 };

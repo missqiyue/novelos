@@ -31,6 +31,32 @@ pub struct WritingPatternInfo {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenreTemplateInfo {
+    pub id: String,
+    pub genre_id: String,
+    pub genre_name: String,
+    pub world_framework: Option<String>,
+    pub volume_rhythm: Option<String>,
+    pub character_archetypes: Option<String>,
+    pub thrill_params: Option<String>,
+    pub taboo_rules: Option<String>,
+    pub naming_style: Option<String>,
+    pub naming_examples: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeAiRuleInfo {
+    pub id: String,
+    pub category: String,
+    pub pattern: String,
+    pub replacement: Option<String>,
+    pub severity: String,
+    pub is_enabled: bool,
+    pub description: Option<String>,
+    pub created_at: String,
+}
+
 /// List all style profiles from the global DB.
 #[tauri::command]
 pub fn list_style_profiles(db: State<'_, DbState>) -> Result<Vec<StyleProfileInfo>, String> {
@@ -125,13 +151,18 @@ pub fn list_writing_patterns(
 
 /// Upsert a style profile in the global DB.
 #[tauri::command]
-pub fn upsert_style_profile(db: State<'_, DbState>, input: UpsertStyleProfileInput) -> Result<StyleProfileInfo, String> {
+pub fn upsert_style_profile(
+    db: State<'_, DbState>,
+    input: UpsertStyleProfileInput,
+) -> Result<StyleProfileInfo, String> {
     let conn = db.global.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let existing: Option<String> = conn
-        .query_row("SELECT id FROM style_profiles WHERE id = ?1", [&id], |r| r.get(0))
+        .query_row("SELECT id FROM style_profiles WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
         .ok();
 
     if existing.is_some() {
@@ -160,7 +191,10 @@ pub struct UpsertStyleProfileInput {
     pub banned_patterns: String,
 }
 
-fn get_style_profile_inner(conn: &rusqlite::Connection, id: &str) -> Result<StyleProfileInfo, String> {
+fn get_style_profile_inner(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<StyleProfileInfo, String> {
     conn.query_row(
         "SELECT id, name, metrics, preferred_patterns, anti_ai_features, sample_paragraphs, banned_patterns, is_builtin, created_at, updated_at FROM style_profiles WHERE id = ?1",
         [id],
@@ -177,20 +211,30 @@ fn get_style_profile_inner(conn: &rusqlite::Connection, id: &str) -> Result<Styl
 #[tauri::command]
 pub fn delete_style_profile(db: State<'_, DbState>, id: String) -> Result<(), String> {
     let conn = db.global.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM style_profiles WHERE id = ?1 AND is_builtin = 0", [&id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM style_profiles WHERE id = ?1 AND is_builtin = 0",
+        [&id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Upsert a writing pattern in the global DB.
 #[tauri::command]
-pub fn upsert_writing_pattern(db: State<'_, DbState>, input: UpsertWritingPatternInput) -> Result<WritingPatternInfo, String> {
+pub fn upsert_writing_pattern(
+    db: State<'_, DbState>,
+    input: UpsertWritingPatternInput,
+) -> Result<WritingPatternInfo, String> {
     let conn = db.global.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().to_rfc3339();
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let existing: Option<String> = conn
-        .query_row("SELECT id FROM writing_patterns WHERE id = ?1", [&id], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM writing_patterns WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
         .ok();
 
     if existing.is_some() {
@@ -228,6 +272,87 @@ pub struct UpsertWritingPatternInput {
     pub sample_text: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpsertGenreTemplateInput {
+    pub id: Option<String>,
+    pub genre_id: String,
+    pub genre_name: String,
+    pub world_framework: Option<String>,
+    pub volume_rhythm: Option<String>,
+    pub character_archetypes: Option<String>,
+    pub thrill_params: Option<String>,
+    pub taboo_rules: Option<String>,
+    pub naming_style: Option<String>,
+    pub naming_examples: Option<String>,
+}
+
+#[tauri::command]
+pub fn upsert_genre_template(
+    db: State<'_, DbState>,
+    input: UpsertGenreTemplateInput,
+) -> Result<GenreTemplateInfo, String> {
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let existing: Option<String> = conn
+        .query_row("SELECT id FROM genre_templates WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
+        .ok();
+
+    if existing.is_some() {
+        conn.execute(
+            "UPDATE genre_templates SET genre_id=?1, genre_name=?2, world_framework=?3, volume_rhythm=?4, character_archetypes=?5, thrill_params=?6, taboo_rules=?7, naming_style=?8, naming_examples=?9 WHERE id=?10",
+            rusqlite::params![
+                input.genre_id,
+                input.genre_name,
+                input.world_framework,
+                input.volume_rhythm,
+                input.character_archetypes,
+                input.thrill_params,
+                input.taboo_rules,
+                input.naming_style,
+                input.naming_examples,
+                id
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "INSERT INTO genre_templates (id, genre_id, genre_name, world_framework, volume_rhythm, character_archetypes, thrill_params, taboo_rules, naming_style, naming_examples) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            rusqlite::params![
+                id,
+                input.genre_id,
+                input.genre_name,
+                input.world_framework,
+                input.volume_rhythm,
+                input.character_archetypes,
+                input.thrill_params,
+                input.taboo_rules,
+                input.naming_style,
+                input.naming_examples
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    conn.query_row(
+        "SELECT id, genre_id, genre_name, world_framework, volume_rhythm, character_archetypes, thrill_params, taboo_rules, naming_style, naming_examples FROM genre_templates WHERE id = ?1",
+        [&id],
+        |row| Ok(GenreTemplateInfo {
+            id: row.get(0)?,
+            genre_id: row.get(1)?,
+            genre_name: row.get(2)?,
+            world_framework: row.get(3)?,
+            volume_rhythm: row.get(4)?,
+            character_archetypes: row.get(5)?,
+            thrill_params: row.get(6)?,
+            taboo_rules: row.get(7)?,
+            naming_style: row.get(8)?,
+            naming_examples: row.get(9)?,
+        }),
+    ).map_err(|e| e.to_string())
+}
+
 // ─── Apply-to-Project commands (SHF-005 core) ───
 
 /// Apply a genre template's settings to the current project.
@@ -263,18 +388,26 @@ pub fn apply_genre_template_to_project(
     let project_id = db.current_project_id().unwrap_or_default();
 
     let now = chrono::Utc::now().to_rfc3339();
-    let upsert_setting = |conn: &rusqlite::Connection, pid: &str, key: &str, value: &str| -> Result<(), String> {
-        let existing_id: Option<String> = conn.query_row(
-            "SELECT id FROM project_settings WHERE project_id = ?1 AND key = ?2",
-            rusqlite::params![pid, key],
-            |r| r.get(0),
-        ).ok().flatten();
+    let upsert_setting = |conn: &rusqlite::Connection,
+                          pid: &str,
+                          key: &str,
+                          value: &str|
+     -> Result<(), String> {
+        let existing_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM project_settings WHERE project_id = ?1 AND key = ?2",
+                rusqlite::params![pid, key],
+                |r| r.get(0),
+            )
+            .ok()
+            .flatten();
 
         if let Some(eid) = existing_id {
             conn.execute(
                 "UPDATE project_settings SET value = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![value, now, eid],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         } else {
             let id = uuid::Uuid::new_v4().to_string();
             conn.execute(
@@ -287,15 +420,39 @@ pub fn apply_genre_template_to_project(
 
     upsert_setting(conn, &project_id, "genre_id", &genre_id)?;
     upsert_setting(conn, &project_id, "genre_name", &genre_name)?;
-    if let Some(ref wf) = world_framework { upsert_setting(conn, &project_id, "world_framework", wf)?; }
-    if let Some(ref vr) = volume_rhythm { upsert_setting(conn, &project_id, "volume_rhythm", vr)?; }
-    if let Some(ref ca) = character_archetypes { upsert_setting(conn, &project_id, "character_archetypes", ca)?; }
-    if let Some(ref tp) = thrill_params { upsert_setting(conn, &project_id, "thrill_params", tp)?; }
-    if let Some(ref tr) = taboo_rules { upsert_setting(conn, &project_id, "taboo_rules", tr)?; }
-    upsert_setting(conn, &project_id, "min_chapter_words", &min_words.to_string())?;
-    upsert_setting(conn, &project_id, "max_chapter_words", &max_words.to_string())?;
-    if let Some(ref ns) = naming_style { upsert_setting(conn, &project_id, "naming_style", ns)?; }
-    if let Some(ref ne) = naming_examples { upsert_setting(conn, &project_id, "naming_examples", ne)?; }
+    if let Some(ref wf) = world_framework {
+        upsert_setting(conn, &project_id, "world_framework", wf)?;
+    }
+    if let Some(ref vr) = volume_rhythm {
+        upsert_setting(conn, &project_id, "volume_rhythm", vr)?;
+    }
+    if let Some(ref ca) = character_archetypes {
+        upsert_setting(conn, &project_id, "character_archetypes", ca)?;
+    }
+    if let Some(ref tp) = thrill_params {
+        upsert_setting(conn, &project_id, "thrill_params", tp)?;
+    }
+    if let Some(ref tr) = taboo_rules {
+        upsert_setting(conn, &project_id, "taboo_rules", tr)?;
+    }
+    upsert_setting(
+        conn,
+        &project_id,
+        "min_chapter_words",
+        &min_words.to_string(),
+    )?;
+    upsert_setting(
+        conn,
+        &project_id,
+        "max_chapter_words",
+        &max_words.to_string(),
+    )?;
+    if let Some(ref ns) = naming_style {
+        upsert_setting(conn, &project_id, "naming_style", ns)?;
+    }
+    if let Some(ref ne) = naming_examples {
+        upsert_setting(conn, &project_id, "naming_examples", ne)?;
+    }
 
     Ok(())
 }
@@ -323,18 +480,26 @@ pub fn apply_style_profile_to_project(
     let project_id = db.current_project_id().unwrap_or_default();
 
     let now = chrono::Utc::now().to_rfc3339();
-    let upsert_setting = |conn: &rusqlite::Connection, pid: &str, key: &str, value: &str| -> Result<(), String> {
-        let existing_id: Option<String> = conn.query_row(
-            "SELECT id FROM project_settings WHERE project_id = ?1 AND key = ?2",
-            rusqlite::params![pid, key],
-            |r| r.get(0),
-        ).ok().flatten();
+    let upsert_setting = |conn: &rusqlite::Connection,
+                          pid: &str,
+                          key: &str,
+                          value: &str|
+     -> Result<(), String> {
+        let existing_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM project_settings WHERE project_id = ?1 AND key = ?2",
+                rusqlite::params![pid, key],
+                |r| r.get(0),
+            )
+            .ok()
+            .flatten();
 
         if let Some(eid) = existing_id {
             conn.execute(
                 "UPDATE project_settings SET value = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![value, now, eid],
-            ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         } else {
             let id = uuid::Uuid::new_v4().to_string();
             conn.execute(
@@ -386,17 +551,21 @@ pub fn import_deai_rules_to_project(
     // Store imported rules as JSON in project_settings
     let json = serde_json::to_string(&rules_to_import).unwrap_or_default();
 
-    let existing_id: Option<String> = conn.query_row(
-        "SELECT id FROM project_settings WHERE project_id = ?1 AND key = ?2",
-        rusqlite::params![project_id, "imported_deai_rules"],
-        |r| r.get(0),
-    ).ok().flatten();
+    let existing_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM project_settings WHERE project_id = ?1 AND key = ?2",
+            rusqlite::params![project_id, "imported_deai_rules"],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
 
     if let Some(eid) = existing_id {
         conn.execute(
             "UPDATE project_settings SET value = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![json, now, eid],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     } else {
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
@@ -406,6 +575,90 @@ pub fn import_deai_rules_to_project(
     }
 
     Ok(rules_to_import.len() as u32)
+}
+
+fn parse_imported_deai_rules(value: &str) -> Vec<DeAiRuleInfo> {
+    let rows: Vec<(String, String, String, Option<String>, String, Option<String>)> =
+        serde_json::from_str(value).unwrap_or_default();
+    rows.into_iter()
+        .map(|(id, category, pattern, replacement, severity, description)| DeAiRuleInfo {
+            id,
+            category,
+            pattern,
+            replacement,
+            severity,
+            is_enabled: true,
+            description,
+            created_at: String::new(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn list_imported_deai_rules(db: State<'_, DbState>) -> Result<Vec<String>, String> {
+    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().unwrap_or_default();
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM project_settings WHERE project_id = ?1 AND key = 'imported_deai_rules'",
+            rusqlite::params![project_id],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(value
+        .as_deref()
+        .map(parse_imported_deai_rules)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|rule| rule.id)
+        .collect())
+}
+
+#[tauri::command]
+pub fn get_effective_deai_rules(db: State<'_, DbState>) -> Result<Vec<DeAiRuleInfo>, String> {
+    let imported_value = {
+        let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = project_conn.as_ref().ok_or("No project open")?;
+        let project_id = db.current_project_id().unwrap_or_default();
+        conn.query_row(
+            "SELECT value FROM project_settings WHERE project_id = ?1 AND key = 'imported_deai_rules'",
+            rusqlite::params![project_id],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+    };
+
+    if let Some(value) = imported_value {
+        let rules = parse_imported_deai_rules(&value);
+        if !rules.is_empty() {
+            return Ok(rules);
+        }
+    }
+
+    let conn = db.global.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, category, pattern, replacement, severity, is_enabled, description, created_at FROM de_ai_rules WHERE is_enabled = 1 ORDER BY category, severity",
+        )
+        .map_err(|e| e.to_string())?;
+    let items = stmt
+        .query_map([], |row| {
+            Ok(DeAiRuleInfo {
+                id: row.get(0)?,
+                category: row.get(1)?,
+                pattern: row.get(2)?,
+                replacement: row.get(3)?,
+                severity: row.get(4)?,
+                is_enabled: row.get::<_, i64>(5)? != 0,
+                description: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(items)
 }
 
 /// Get a unified overview of all global shared resources.
@@ -420,7 +673,11 @@ pub fn list_global_resources(db: State<'_, DbState>) -> Result<GlobalResourcesOv
         .query_row("SELECT COUNT(*) FROM style_profiles", [], |r| r.get(0))
         .unwrap_or(0);
     let deai_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM de_ai_rules WHERE is_enabled = 1", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM de_ai_rules WHERE is_enabled = 1",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
     let soul_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM soul_templates", [], |r| r.get(0))

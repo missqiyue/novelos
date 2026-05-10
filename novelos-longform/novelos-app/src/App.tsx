@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { exit } from "@tauri-apps/plugin-process";
 
-
 /** Listen for the Rust-side close-requested event and exit the app. */
 function CloseHandler() {
   useEffect(() => {
@@ -18,7 +17,9 @@ function CloseHandler() {
         // Not running in Tauri — ignore
       }
     })();
-    return () => { unlisten?.(); };
+    return () => {
+      unlisten?.();
+    };
   }, []);
   return null;
 }
@@ -30,6 +31,7 @@ import { BookshelfPage } from "./components/bookshelf/BookshelfPage";
 import { ProjectSetupPage } from "./components/project/ProjectSetupPage";
 import { CanonPage } from "./components/canon/CanonPage";
 import { OutlinePage } from "./components/outline/OutlinePage";
+import { ChapterListPage } from "./components/chapter/ChapterListPage";
 import { ChapterWorkbench } from "./components/chapter/ChapterWorkbench";
 import { CharactersPage } from "./components/character/CharactersPage";
 import { CharacterDetailPage } from "./components/character/CharacterDetailPage";
@@ -120,6 +122,7 @@ function App() {
               <Route path="chapter-planning" element={<ChapterPlanningBoard />} />
               <Route path="volume-stats" element={<VolumeStatsPage />} />
               <Route path="chapter-dependencies" element={<ChapterDependencyGraph />} />
+              <Route path="chapters" element={<ChapterListPage />} />
               <Route path="chapter/:chapterNumber" element={<ChapterWorkbench />} />
               <Route path="read/:chapterNumber" element={<ReadingModePage />} />
               <Route path="chapter-outline/:chapterNumber?" element={<ChapterOutlinePage />} />

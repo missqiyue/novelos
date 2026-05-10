@@ -79,10 +79,7 @@ pub fn update_task_progress(
 
 /// Mark a task as completed.
 #[tauri::command]
-pub fn complete_task(
-    registry: State<'_, TaskRegistry>,
-    task_id: String,
-) -> Result<(), String> {
+pub fn complete_task(registry: State<'_, TaskRegistry>, task_id: String) -> Result<(), String> {
     let mut tasks = registry.tasks.lock().map_err(|e| e.to_string())?;
     if let Some(task) = tasks.get_mut(&task_id) {
         task.status = "completed".to_string();
@@ -96,10 +93,7 @@ pub fn complete_task(
 
 /// Mark a task as failed.
 #[tauri::command]
-pub fn fail_task(
-    registry: State<'_, TaskRegistry>,
-    task_id: String,
-) -> Result<(), String> {
+pub fn fail_task(registry: State<'_, TaskRegistry>, task_id: String) -> Result<(), String> {
     let mut tasks = registry.tasks.lock().map_err(|e| e.to_string())?;
     if let Some(task) = tasks.get_mut(&task_id) {
         task.status = "failed".to_string();
@@ -112,10 +106,7 @@ pub fn fail_task(
 
 /// Cancel a running or paused task.
 #[tauri::command]
-pub fn cancel_task(
-    registry: State<'_, TaskRegistry>,
-    task_id: String,
-) -> Result<(), String> {
+pub fn cancel_task(registry: State<'_, TaskRegistry>, task_id: String) -> Result<(), String> {
     let mut tasks = registry.tasks.lock().map_err(|e| e.to_string())?;
     if let Some(task) = tasks.get_mut(&task_id) {
         if task.status == "completed" || task.status == "failed" || task.status == "cancelled" {
@@ -131,14 +122,14 @@ pub fn cancel_task(
 
 /// Pause a running task.
 #[tauri::command]
-pub fn pause_task(
-    registry: State<'_, TaskRegistry>,
-    task_id: String,
-) -> Result<(), String> {
+pub fn pause_task(registry: State<'_, TaskRegistry>, task_id: String) -> Result<(), String> {
     let mut tasks = registry.tasks.lock().map_err(|e| e.to_string())?;
     if let Some(task) = tasks.get_mut(&task_id) {
         if task.status != "running" {
-            return Err(format!("Can only pause running tasks, current status: '{}'", task.status));
+            return Err(format!(
+                "Can only pause running tasks, current status: '{}'",
+                task.status
+            ));
         }
         task.status = "paused".to_string();
         task.updated_at = chrono::Utc::now().to_rfc3339();
@@ -150,14 +141,14 @@ pub fn pause_task(
 
 /// Resume a paused task.
 #[tauri::command]
-pub fn resume_task(
-    registry: State<'_, TaskRegistry>,
-    task_id: String,
-) -> Result<(), String> {
+pub fn resume_task(registry: State<'_, TaskRegistry>, task_id: String) -> Result<(), String> {
     let mut tasks = registry.tasks.lock().map_err(|e| e.to_string())?;
     if let Some(task) = tasks.get_mut(&task_id) {
         if task.status != "paused" {
-            return Err(format!("Can only resume paused tasks, current status: '{}'", task.status));
+            return Err(format!(
+                "Can only resume paused tasks, current status: '{}'",
+                task.status
+            ));
         }
         task.status = "running".to_string();
         task.updated_at = chrono::Utc::now().to_rfc3339();
@@ -184,9 +175,7 @@ pub fn list_project_tasks(
 
 /// Get all tasks (for bookshelf overview).
 #[tauri::command]
-pub fn list_all_tasks(
-    registry: State<'_, TaskRegistry>,
-) -> Result<Vec<BackgroundTask>, String> {
+pub fn list_all_tasks(registry: State<'_, TaskRegistry>) -> Result<Vec<BackgroundTask>, String> {
     let tasks = registry.tasks.lock().map_err(|e| e.to_string())?;
     let result: Vec<BackgroundTask> = tasks
         .values()

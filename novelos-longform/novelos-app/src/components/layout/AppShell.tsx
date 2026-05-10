@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useParams, useNavigate, useLocation } from "react-router-dom";
+import { NavLink, useParams, useNavigate, useLocation, useOutlet } from "react-router-dom";
 import { GlobalSearch } from "./GlobalSearch";
 import { NotificationBell } from "./NotificationBell";
 import { ErrorBoundary } from "../common/ErrorBoundary";
@@ -23,32 +23,70 @@ import {
   PanelLeft,
   Sun,
   Moon,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
   { to: "dashboard", label: "看板", icon: LayoutDashboard },
   { to: "canon", label: "正典", icon: ScrollText },
   { to: "outline", label: "剧情树", icon: GitBranch },
-  { to: "chapter/1", label: "章节", icon: FileText },
+  { to: "chapters", label: "章节", icon: FileText },
   { to: "characters", label: "角色", icon: Users },
   { to: "ledger", label: "账本", icon: Library },
+  { to: "global-resources", label: "资源库", icon: Sparkles },
   { to: "retcon-approval", label: "修史审批", icon: Shield },
   { to: "compliance-shield", label: "合规盾", icon: ShieldAlert },
   { to: "settings", label: "设置", icon: Settings },
 ];
 
+const PATH_MEMORY_SECTIONS = new Set([
+  "dashboard",
+  "canon",
+  "outline",
+  "chapters",
+  "chapter",
+  "characters",
+  "ledger",
+  "global-resources",
+  "retcon-approval",
+  "compliance-shield",
+  "settings",
+]);
 
+// Keep-alive is intentionally narrower than path memory.
+// macOS 26's system WebKit has shown instability around hidden scroll-heavy pages,
+// so we only preserve the chapter workbench across route switches for now.
+const KEEP_ALIVE_SECTIONS = new Set(["chapter"]);
+
+function getSectionKey(projectId: string | undefined, pathname: string): string | null {
+  if (!projectId) return null;
+  const prefix = `/project/${projectId}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const rest = pathname.slice(prefix.length);
+  const section = rest.split("/")[0];
+  return section || null;
+}
+
+function getDefaultNavPath(projectId: string | undefined, to: string): string {
+  return `/project/${projectId}/${to}`;
+}
 
 export function AppShell() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const outlet = useOutlet();
   const { project, fetch, switchProject } = useProjectStore();
   const { items, fetch: fetchBookshelf, openProject } = useBookshelfStore();
   const { zenMode } = useUiStore();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [cachedOutlets, setCachedOutlets] = useState<
+    Record<string, { path: string; node: React.ReactNode }>
+  >({});
+  const [lastVisitedPaths, setLastVisitedPaths] = useState<Record<string, string>>({});
   const switcherRef = useRef<HTMLDivElement>(null);
+  const currentSection = getSectionKey(projectId, location.pathname);
 
   const { theme, toggle: toggleTheme } = useTheme();
   useGlobalShortcuts();
@@ -69,7 +107,29 @@ export function AppShell() {
     return () => document.removeEventListener("mousedown", handler);
   }, [switcherOpen]);
 
+  useEffect(() => {
+    if (!currentSection || !projectId) return;
+    if (!PATH_MEMORY_SECTIONS.has(currentSection)) return;
 
+    setLastVisitedPaths((prev) => {
+      if (prev[currentSection] === location.pathname) return prev;
+      return { ...prev, [currentSection]: location.pathname };
+    });
+
+    if (!KEEP_ALIVE_SECTIONS.has(currentSection)) return;
+
+    setCachedOutlets((prev) => {
+      const existing = prev[currentSection];
+      if (existing?.path === location.pathname) return prev;
+      return {
+        ...prev,
+        [currentSection]: {
+          path: location.pathname,
+          node: outlet,
+        },
+      };
+    });
+  }, [currentSection, location.pathname, outlet, projectId]);
 
   const handleSwitch = async (id: string) => {
     setSwitcherOpen(false);
@@ -82,9 +142,7 @@ export function AppShell() {
     return (
       <div className="h-screen bg-gray-50">
         <main className="h-full">
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
+          <ErrorBoundary>{outlet}</ErrorBoundary>
         </main>
       </div>
     );
@@ -157,13 +215,11 @@ export function AppShell() {
           )}
         </div>
 
-
-
         <nav className="flex-1 p-2">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
-              to={`/project/${projectId}/${to}`}
+              to={lastVisitedPaths[to.split("/")[0]] || getDefaultNavPath(projectId, to)}
               title={label}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -205,7 +261,24 @@ export function AppShell() {
         </div>
         <main className="flex-1 overflow-auto">
           <ErrorBoundary>
-            <Outlet />
+            <>
+              {Object.entries(cachedOutlets).map(([section, entry]) => {
+                const isVisible = section === currentSection;
+                return (
+                  <div
+                    key={section}
+                    className="h-full"
+                    style={{ display: isVisible ? "block" : "none" }}
+                    aria-hidden={!isVisible}
+                  >
+                    {entry.node}
+                  </div>
+                );
+              })}
+              {(!currentSection || !KEEP_ALIVE_SECTIONS.has(currentSection)) && (
+                <div className="h-full">{outlet}</div>
+              )}
+            </>
           </ErrorBoundary>
         </main>
       </div>

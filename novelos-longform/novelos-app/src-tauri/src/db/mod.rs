@@ -68,23 +68,30 @@ impl DbState {
         Ok(dir)
     }
 
-    pub fn open_project_db(&self, app: &tauri::AppHandle, project_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn open_project_db(
+        &self,
+        app: &tauri::AppHandle,
+        project_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let db_path = Self::books_dir(app)?.join(project_id).join("book.db");
-        std::fs::create_dir_all(db_path.parent().unwrap())?;
+        let db_dir = db_path
+            .parent()
+            .ok_or_else(|| format!("Invalid project DB path: {}", db_path.display()))?;
+        std::fs::create_dir_all(db_dir)?;
         let mut conn = Connection::open(&db_path)?;
         project::run_migrations(&mut conn)?;
-        *self.project.lock().unwrap() = Some(conn);
-        *self.project_id.lock().unwrap() = Some(project_id.to_string());
+        *recover_or_lock(&self.project, || None) = Some(conn);
+        *recover_or_lock(&self.project_id, || None) = Some(project_id.to_string());
         Ok(())
     }
 
     pub fn close_project_db(&self) {
-        *self.project.lock().unwrap() = None;
-        *self.project_id.lock().unwrap() = None;
+        *recover_or_lock(&self.project, || None) = None;
+        *recover_or_lock(&self.project_id, || None) = None;
     }
 
     pub fn current_project_id(&self) -> Option<String> {
-        self.project_id.lock().unwrap().clone()
+        recover_or_lock(&self.project_id, || None).clone()
     }
 
     /// Safely lock the project database connection.
@@ -103,25 +110,46 @@ impl DbState {
         }
     }
 
+    /// Lock the project database connection for read-heavy, diagnostic paths.
+    /// If the mutex is poisoned, continue with the recovered inner guard so
+    /// log/inspection UIs can still surface useful information.
+    pub fn lock_project_recover(&self) -> Result<MutexGuard<'_, Option<Connection>>, String> {
+        match self.project.lock() {
+            Ok(guard) => Ok(guard),
+            Err(poisoned) => {
+                log::warn!(
+                    "Project DB mutex poisoned — recovering existing connection for diagnostics"
+                );
+                Ok(poisoned.into_inner())
+            }
+        }
+    }
+
     /// Safely lock the global database connection.
     /// On poisoned mutex, attempts to re-open the connection.
-    pub fn lock_global(&self, app: &tauri::AppHandle) -> Result<MutexGuard<'_, Connection>, String> {
+    pub fn lock_global(
+        &self,
+        app: &tauri::AppHandle,
+    ) -> Result<MutexGuard<'_, Connection>, String> {
         match self.global.lock() {
             Ok(guard) => Ok(guard),
             Err(poisoned) => {
                 log::error!("Global DB mutex poisoned — attempting to re-open");
                 let mut guard = poisoned.into_inner();
                 // Try to re-open the global database
-                let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("global");
+                let data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| e.to_string())?
+                    .join("novelos")
+                    .join("global");
                 let db_path = data_dir.join("global.db");
                 match Connection::open(&db_path) {
                     Ok(conn) => {
                         *guard = conn;
                         Ok(guard)
                     }
-                    Err(e) => {
-                        Err(format!("Failed to re-open global database: {}", e))
-                    }
+                    Err(e) => Err(format!("Failed to re-open global database: {}", e)),
                 }
             }
         }

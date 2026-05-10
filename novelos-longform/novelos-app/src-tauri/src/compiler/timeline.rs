@@ -3,8 +3,12 @@ use super::{CompileContext, CompileIssue, CompilePass};
 pub struct TimelineChecker;
 
 impl CompilePass for TimelineChecker {
-    fn name(&self) -> &'static str { "TimelineChecker" }
-    fn description(&self) -> &'static str { "检查时间线事件覆盖" }
+    fn name(&self) -> &'static str {
+        "TimelineChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查时间线事件覆盖"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
@@ -23,11 +27,15 @@ impl CompilePass for TimelineChecker {
             }
 
             // Check coverage: at least half the keywords should appear in draft
-            let found_count = keywords.iter().filter(|kw| ctx.draft_text.contains(*kw)).count();
+            let found_count = keywords
+                .iter()
+                .filter(|kw| ctx.draft_text.contains(*kw))
+                .count();
             let coverage_ratio = found_count as f32 / keywords.len() as f32;
 
             if coverage_ratio < 0.4 {
-                let missing: Vec<&str> = keywords.iter()
+                let missing: Vec<&str> = keywords
+                    .iter()
                     .filter(|kw| !ctx.draft_text.contains(*kw))
                     .copied()
                     .collect();
@@ -54,22 +62,30 @@ impl CompilePass for TimelineChecker {
         if time_indicators.len() >= 2 {
             // Check for contradictory time flow (going backwards)
             let order_keywords = [
-                ("之前", "after"), ("刚才", "after"), ("此前", "after"),
-                ("后来", "before"), ("之后", "before"), ("随后", "before"),
+                ("之前", "after"),
+                ("刚才", "after"),
+                ("此前", "after"),
+                ("后来", "before"),
+                ("之后", "before"),
+                ("随后", "before"),
             ];
             // This is a simple heuristic — a full temporal parser would be more accurate
             for i in 1..time_indicators.len() {
                 let (prev_text, prev_idx) = &time_indicators[i - 1];
                 let (curr_text, curr_idx) = &time_indicators[i];
                 // If a "before" keyword appears after an "after" keyword in close proximity
-                if prev_text.contains("之前") && curr_text.contains("之后")
+                if prev_text.contains("之前")
+                    && curr_text.contains("之后")
                     && curr_idx - prev_idx < 200
                 {
                     issues.push(CompileIssue {
                         checker: self.name().to_string(),
                         severity: "info".to_string(),
                         message: "时间描述可能存在矛盾".to_string(),
-                        detail: Some("相近段落中同时出现\"之前\"和\"之后\"，请确认时间顺序是否合理。".to_string()),
+                        detail: Some(
+                            "相近段落中同时出现\"之前\"和\"之后\"，请确认时间顺序是否合理。"
+                                .to_string(),
+                        ),
                         location: None,
                         paragraph_index: None,
                     });
@@ -123,10 +139,23 @@ fn is_cjk_char(ch: char) -> bool {
 /// Extract time-related phrases with their byte offsets.
 fn extract_time_indicators(text: &str) -> Vec<(String, usize)> {
     let patterns = [
-        r"\d+天[前后]", r"\d+年[前后]", r"\d+月[前后]", r"\d+日[前后]",
-        r"第\d+天", r"三天后", r"第二天", r"隔天", r"翌日",
-        r"此时", r"随后", r"不久", r"片刻", r"之前", r"之后",
-        r"刚才", r"此前",
+        r"\d+天[前后]",
+        r"\d+年[前后]",
+        r"\d+月[前后]",
+        r"\d+日[前后]",
+        r"第\d+天",
+        r"三天后",
+        r"第二天",
+        r"隔天",
+        r"翌日",
+        r"此时",
+        r"随后",
+        r"不久",
+        r"片刻",
+        r"之前",
+        r"之后",
+        r"刚才",
+        r"此前",
     ];
 
     let mut results = Vec::new();

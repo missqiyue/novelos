@@ -1,10 +1,14 @@
-use super::{CompileContext, CompileIssue, CompilePass, find_paragraph_index};
+use super::{find_paragraph_index, CompileContext, CompileIssue, CompilePass};
 
 pub struct CanonChecker;
 
 impl CompilePass for CanonChecker {
-    fn name(&self) -> &'static str { "CanonChecker" }
-    fn description(&self) -> &'static str { "检查硬规则/软规则冲突" }
+    fn name(&self) -> &'static str {
+        "CanonChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查硬规则/软规则冲突"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
@@ -27,7 +31,11 @@ impl CompilePass for CanonChecker {
                     if !is_negated_in_context(ctx.draft_text, term) {
                         issues.push(CompileIssue {
                             checker: self.name().to_string(),
-                            severity: if rule.is_hard { "error".to_string() } else { "warning".to_string() },
+                            severity: if rule.is_hard {
+                                "error".to_string()
+                            } else {
+                                "warning".to_string()
+                            },
                             message: format!("违反正典规则: {}", rule.rule_name),
                             detail: Some(format!("发现禁止内容: \"{}\"", term)),
                             location: None,
@@ -43,7 +51,11 @@ impl CompilePass for CanonChecker {
                         if fuzzy != term && !is_negated_in_context(ctx.draft_text, &fuzzy) {
                             issues.push(CompileIssue {
                                 checker: self.name().to_string(),
-                                severity: if rule.is_hard { "warning".to_string() } else { "info".to_string() },
+                                severity: if rule.is_hard {
+                                    "warning".to_string()
+                                } else {
+                                    "info".to_string()
+                                },
                                 message: format!("疑似违反正典规则: {}", rule.rule_name),
                                 detail: Some(format!(
                                     "发现与禁止内容\"{}\"相近的词\"{}\"，请确认是否违规。",
@@ -64,7 +76,11 @@ impl CompilePass for CanonChecker {
                 if !term.is_empty() && !ctx.draft_text.contains(term) {
                     issues.push(CompileIssue {
                         checker: self.name().to_string(),
-                        severity: if rule.is_hard { "warning".to_string() } else { "info".to_string() },
+                        severity: if rule.is_hard {
+                            "warning".to_string()
+                        } else {
+                            "info".to_string()
+                        },
                         message: format!("可能缺少必要内容: {}", rule.rule_name),
                         detail: Some(format!(
                             "正典规则要求\"{}\"，但正文中未找到\"{}\"。",
@@ -85,8 +101,13 @@ fn extract_prohibitions<'a>(content: &'a str) -> Vec<&'a str> {
     content
         .split(|c: char| c == '；' || c == ';' || c == '\n')
         .filter(|s| {
-            s.contains("不得") || s.contains("禁止") || s.contains("不允许") || s.contains("不能")
-                || s.contains("不可") || s.contains("严禁") || s.contains("绝不可")
+            s.contains("不得")
+                || s.contains("禁止")
+                || s.contains("不允许")
+                || s.contains("不能")
+                || s.contains("不可")
+                || s.contains("严禁")
+                || s.contains("绝不可")
         })
         .collect()
 }
@@ -94,13 +115,15 @@ fn extract_prohibitions<'a>(content: &'a str) -> Vec<&'a str> {
 fn extract_requirements<'a>(content: &'a str) -> Vec<&'a str> {
     content
         .split(|c: char| c == '；' || c == ';' || c == '\n')
-        .filter(|s| s.contains("必须") || s.contains("需要") || s.contains("应当") || s.contains("务必"))
+        .filter(|s| {
+            s.contains("必须") || s.contains("需要") || s.contains("应当") || s.contains("务必")
+        })
         .collect()
 }
 
 fn extract_prohibited_term(proh: &str) -> &str {
-    proh
-        .split("不得").last()
+    proh.split("不得")
+        .last()
         .or_else(|| proh.split("禁止").last())
         .or_else(|| proh.split("不允许").last())
         .or_else(|| proh.split("不能").last())
@@ -112,8 +135,8 @@ fn extract_prohibited_term(proh: &str) -> &str {
 }
 
 fn extract_required_term(req: &str) -> &str {
-    req
-        .split("必须").last()
+    req.split("必须")
+        .last()
         .or_else(|| req.split("需要").last())
         .or_else(|| req.split("应当").last())
         .or_else(|| req.split("务必").last())
@@ -169,19 +192,31 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     let a_len = a_chars.len();
     let b_len = b_chars.len();
 
-    if a_len == 0 { return b_len; }
-    if b_len == 0 { return a_len; }
+    if a_len == 0 {
+        return b_len;
+    }
+    if b_len == 0 {
+        return a_len;
+    }
 
     let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
-    for i in 0..=a_len { matrix[i][0] = i; }
-    for j in 0..=b_len { matrix[0][j] = j; }
+    for i in 0..=a_len {
+        matrix[i][0] = i;
+    }
+    for j in 0..=b_len {
+        matrix[0][j] = j;
+    }
 
     for i in 1..=a_len {
         for j in 1..=b_len {
-            let cost = if a_chars[i-1] == b_chars[j-1] { 0 } else { 1 };
-            matrix[i][j] = (matrix[i-1][j] + 1)
-                .min(matrix[i][j-1] + 1)
-                .min(matrix[i-1][j-1] + cost);
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            matrix[i][j] = (matrix[i - 1][j] + 1)
+                .min(matrix[i][j - 1] + 1)
+                .min(matrix[i - 1][j - 1] + cost);
         }
     }
 

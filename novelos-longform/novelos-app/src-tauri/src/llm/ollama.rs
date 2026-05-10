@@ -87,11 +87,22 @@ impl LlmProvider for OllamaProvider {
         &self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
         let body = OllamaRequest {
             model: self.config.model.clone(),
-            messages: messages.iter().map(|m| OllamaMessage { role: m.role.clone(), content: m.content.clone() }).collect(),
+            messages: messages
+                .iter()
+                .map(|m| OllamaMessage {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect(),
             stream: false,
             options: OllamaOptions {
                 temperature: self.config.temperature,
@@ -117,16 +128,24 @@ impl LlmProvider for OllamaProvider {
                     let status = resp.status();
                     if !status.is_success() {
                         let err_text = resp.text().await.unwrap_or_default();
-                        return Err(format!("Ollama API error {}: {}", status.as_u16(), err_text));
+                        return Err(format!(
+                            "Ollama API error {}: {}",
+                            status.as_u16(),
+                            err_text
+                        ));
                     }
 
-                    resp.json::<OllamaResponse>().await
+                    resp.json::<OllamaResponse>()
+                        .await
                         .map_err(|e| format!("JSON parse error: {}", e))
                 }
-            }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
+            })
+            .await
+            .map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
 
             Ok(ChatResponse {
                 content: data.message.content,
+                reasoning_content: String::new(),
                 prompt_tokens: data.prompt_eval_count.unwrap_or(0),
                 completion_tokens: data.eval_count.unwrap_or(0),
                 total_tokens: data.prompt_eval_count.unwrap_or(0) + data.eval_count.unwrap_or(0),
@@ -139,7 +158,11 @@ impl LlmProvider for OllamaProvider {
         self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn tokio_stream::Stream<Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>> + Send>,
+        Box<
+            dyn tokio_stream::Stream<
+                    Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send,
+        >,
     >
     where
         Self: Sized + Send + 'static,
@@ -219,6 +242,7 @@ impl LlmProvider for OllamaProvider {
 
                     yield Ok(StreamChunk {
                         delta,
+                        reasoning_delta: String::new(),
                         done,
                         prompt_tokens: 0,
                         completion_tokens: 0,
@@ -237,7 +261,12 @@ impl LlmProvider for OllamaProvider {
         text: &str,
         model: &str,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
         let base_url = self.base_url();
         let client = self.client.clone();
@@ -248,7 +277,10 @@ impl LlmProvider for OllamaProvider {
             let api_resp = retry_async(2, move |_attempt| {
                 let client = client.clone();
                 let base_url = base_url.clone();
-                let body = OllamaEmbedRequest { model: model.clone(), prompt: prompt.clone() };
+                let body = OllamaEmbedRequest {
+                    model: model.clone(),
+                    prompt: prompt.clone(),
+                };
                 async move {
                     let response = client
                         .post(format!("{}/api/embeddings", base_url))
@@ -263,10 +295,14 @@ impl LlmProvider for OllamaProvider {
                         return Err(format!("Ollama embedding error ({}): {}", status, text));
                     }
 
-                    response.json::<OllamaEmbedResponse>().await
+                    response
+                        .json::<OllamaEmbedResponse>()
+                        .await
                         .map_err(|e| format!("JSON parse error: {}", e))
                 }
-            }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
+            })
+            .await
+            .map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
 
             Ok(api_resp.embedding)
         })

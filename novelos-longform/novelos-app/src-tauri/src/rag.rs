@@ -196,13 +196,20 @@ where
     F: Fn(&str) -> Vec<f32>,
 {
     // Remove existing chunks for this chapter
-    conn.execute("DELETE FROM rag_chunks WHERE chapter_number = ?1", rusqlite::params![chapter_number])
-        .map_err(|e| format!("Failed to clear existing chunks: {}", e))?;
+    conn.execute(
+        "DELETE FROM rag_chunks WHERE chapter_number = ?1",
+        rusqlite::params![chapter_number],
+    )
+    .map_err(|e| format!("Failed to clear existing chunks: {}", e))?;
 
     let chunks = chunk_text(text, 1024);
-    let characters = extra_metadata.as_ref().and_then(|m| m.get("characters").cloned());
+    let characters = extra_metadata
+        .as_ref()
+        .and_then(|m| m.get("characters").cloned());
     let pov = extra_metadata.as_ref().and_then(|m| m.get("pov").cloned());
-    let foreshadows = extra_metadata.as_ref().and_then(|m| m.get("foreshadows").cloned());
+    let foreshadows = extra_metadata
+        .as_ref()
+        .and_then(|m| m.get("foreshadows").cloned());
 
     for (idx, chunk) in chunks.iter().enumerate() {
         let embedding = embedder(chunk);
@@ -246,23 +253,36 @@ fn row_to_chunk(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkRow> {
 }
 
 /// Load all chunks from SQLite, optionally filtered by chapter range.
-fn load_all_chunks(conn: &Connection, chapter_range: Option<(i64, i64)>) -> Result<Vec<ChunkRow>, String> {
+fn load_all_chunks(
+    conn: &Connection,
+    chapter_range: Option<(i64, i64)>,
+) -> Result<Vec<ChunkRow>, String> {
     match chapter_range {
         Some((min_ch, max_ch)) => {
             let mut stmt = conn.prepare(
                 "SELECT chapter_number, chunk_text, embedding, characters, pov, foreshadows FROM rag_chunks WHERE chapter_number >= ?1 AND chapter_number <= ?2"
             ).map_err(|e| e.to_string())?;
-            let rows = stmt.query_map(rusqlite::params![min_ch, max_ch], row_to_chunk)
+            let rows = stmt
+                .query_map(rusqlite::params![min_ch, max_ch], row_to_chunk)
                 .map_err(|e| e.to_string())?;
-            rows.filter_map(|r| r.ok()).collect::<Vec<_>>().into_iter().map(Ok).collect()
+            rows.filter_map(|r| r.ok())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(Ok)
+                .collect()
         }
         None => {
             let mut stmt = conn.prepare(
                 "SELECT chapter_number, chunk_text, embedding, characters, pov, foreshadows FROM rag_chunks"
             ).map_err(|e| e.to_string())?;
-            let rows = stmt.query_map([], row_to_chunk)
+            let rows = stmt
+                .query_map([], row_to_chunk)
                 .map_err(|e| e.to_string())?;
-            rows.filter_map(|r| r.ok()).collect::<Vec<_>>().into_iter().map(Ok).collect()
+            rows.filter_map(|r| r.ok())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(Ok)
+                .collect()
         }
     }
 }
@@ -365,7 +385,11 @@ pub fn search_similar_sqlite(
         .collect();
 
     // Sort by similarity descending
-    scored.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let limit = top_k.min(scored.len());
     Ok(scored[..limit]
@@ -396,7 +420,11 @@ pub fn get_rag_stats_sqlite(conn: &Connection) -> Result<IndexStats, String> {
         .map_err(|e| e.to_string())?;
 
     let total_chapters: i64 = conn
-        .query_row("SELECT COUNT(DISTINCT chapter_number) FROM rag_chunks", [], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(DISTINCT chapter_number) FROM rag_chunks",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
 
     Ok(IndexStats {

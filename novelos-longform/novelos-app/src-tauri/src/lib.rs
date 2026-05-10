@@ -8,6 +8,7 @@ pub mod orchestrator;
 pub mod rag;
 
 use commands::llm::{LlmState, StreamCancelTokens};
+use commands::rag::RagRebuildCancelTokens;
 use commands::task_manager::TaskRegistry;
 use db::DbState;
 use std::collections::HashMap;
@@ -32,6 +33,14 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let db_state = DbState::new(&handle)?;
+            let llm_state = match commands::llm::load_persisted_llm_config(&db_state) {
+                Ok(Some(config)) => LlmState::from_config(config),
+                Ok(None) => LlmState::new(),
+                Err(err) => {
+                    log::warn!("Failed to hydrate persisted LLM config: {}", err);
+                    LlmState::new()
+                }
+            };
             app.manage(db_state);
 
             // Open devtools for debugging
@@ -40,8 +49,9 @@ pub fn run() {
                 let window = app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
-            app.manage(LlmState::new());
+            app.manage(llm_state);
             app.manage(StreamCancelTokens(Mutex::new(HashMap::new())));
+            app.manage(RagRebuildCancelTokens(Mutex::new(HashMap::new())));
             app.manage(TaskRegistry::new());
 
             if cfg!(debug_assertions) {
@@ -112,6 +122,7 @@ pub fn run() {
             commands::outline::list_volume_outlines,
             commands::outline::save_volume_outline,
             commands::outline::list_chapter_outlines,
+            commands::outline::get_latest_chapter_outline,
             commands::outline::save_chapter_outline,
             commands::outline::confirm_chapter_outline,
             commands::outline::list_volumes,
@@ -141,6 +152,7 @@ pub fn run() {
             commands::chapter::get_valid_transitions,
             commands::chapter::set_compile_status,
             commands::chapter::set_review_status,
+            commands::chapter::save_chapter_title,
             commands::chapter::search_chapters,
             commands::chapter::search_chapters_with_highlights,
             commands::chapter::get_volume_word_stats,
@@ -157,8 +169,11 @@ pub fn run() {
             commands::llm::chat_completion,
             commands::llm::chat_with_system_prompt,
             commands::llm::save_llm_config_to_db,
+            commands::llm::save_runtime_llm_config_to_db,
             commands::llm::load_llm_config_from_db,
             commands::llm::get_token_usage,
+            commands::llm::list_llm_api_calls,
+            commands::llm::list_llm_stream_events,
             commands::llm::chat_completion_stream,
             commands::llm::cancel_stream,
             // Agent
@@ -171,6 +186,11 @@ pub fn run() {
             commands::agent::reset_agent_prompt,
             // Compiler
             commands::compiler::compile_chapter,
+            commands::compiler::compute_chapter_quality_report,
+            commands::compiler::get_latest_chapter_quality_report,
+            commands::compiler::list_chapter_review_history,
+            commands::compiler::run_quick_review,
+            commands::compiler::repair_chapter_with_quality_actions,
             commands::compiler::run_paragraph_rewrite,
             // Ledger
             commands::ledger::list_character_states,
@@ -205,6 +225,7 @@ pub fn run() {
             commands::risk::generate_project_health_report,
             // Orchestrator
             commands::orchestrator::run_chapter_pipeline,
+            commands::orchestrator::get_latest_chapter_pipeline_result,
             commands::orchestrator::run_batch_pipeline,
             commands::orchestrator::run_batch_pipeline_concurrent,
             // Backup
@@ -227,6 +248,8 @@ pub fn run() {
             commands::rag::rag_semantic_recall,
             commands::rag::clear_book_index,
             commands::rag::get_index_stats,
+            commands::rag::rebuild_book_index,
+            commands::rag::cancel_rebuild_book_index,
             // Chapter merge
             commands::chapter::merge_recall_results,
             // Recall (RCL-001~004)
@@ -253,9 +276,12 @@ pub fn run() {
             commands::shared_resources::upsert_style_profile,
             commands::shared_resources::delete_style_profile,
             commands::shared_resources::upsert_writing_pattern,
+            commands::shared_resources::upsert_genre_template,
             commands::shared_resources::apply_genre_template_to_project,
             commands::shared_resources::apply_style_profile_to_project,
             commands::shared_resources::import_deai_rules_to_project,
+            commands::shared_resources::list_imported_deai_rules,
+            commands::shared_resources::get_effective_deai_rules,
             commands::shared_resources::list_global_resources,
             commands::shared_resources::get_editor_prefs,
             commands::shared_resources::set_editor_prefs,

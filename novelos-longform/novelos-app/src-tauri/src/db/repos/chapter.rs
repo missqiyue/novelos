@@ -37,7 +37,11 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<ChapterRow> {
     })
 }
 
-fn query_list(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<ChapterRow>, String> {
+fn query_list(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<ChapterRow>, String> {
     let mut stmt = conn.prepare(sql).map_err(db_err)?;
     let rows = stmt.query_map(params, map_row).map_err(db_err)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
@@ -59,7 +63,11 @@ impl Repository<ChapterRow> for ChapterRepo {
     }
 
     fn list(conn: &Connection) -> Result<Vec<ChapterRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM chapters ORDER BY chapter_number"), [])
+        query_list(
+            conn,
+            &format!("SELECT {SELECT_COLS} FROM chapters ORDER BY chapter_number"),
+            [],
+        )
     }
 
     fn delete(conn: &Connection, id: &str) -> Result<(), String> {
@@ -72,7 +80,10 @@ impl Repository<ChapterRow> for ChapterRepo {
 }
 
 impl ChapterRepo {
-    pub fn find_by_number(conn: &Connection, chapter_number: i64) -> Result<Option<ChapterRow>, String> {
+    pub fn find_by_number(
+        conn: &Connection,
+        chapter_number: i64,
+    ) -> Result<Option<ChapterRow>, String> {
         match conn.query_row(
             &format!("SELECT {SELECT_COLS} FROM chapters WHERE chapter_number = ?1"),
             [chapter_number],
@@ -84,7 +95,12 @@ impl ChapterRepo {
         }
     }
 
-    pub fn update_draft(conn: &Connection, chapter_number: i64, draft_text: &str, now: &str) -> Result<(), String> {
+    pub fn update_draft(
+        conn: &Connection,
+        chapter_number: i64,
+        draft_text: &str,
+        now: &str,
+    ) -> Result<(), String> {
         let word_count = draft_text.chars().count() as i64;
         conn.execute(
             "UPDATE chapters SET draft_text = ?1, word_count = ?2, status = 'drafting', updated_at = ?3 WHERE chapter_number = ?4",
@@ -95,10 +111,19 @@ impl ChapterRepo {
     }
 
     pub fn list_by_status(conn: &Connection, status: &str) -> Result<Vec<ChapterRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM chapters WHERE status = ?1 ORDER BY chapter_number"), [status])
+        query_list(
+            conn,
+            &format!(
+                "SELECT {SELECT_COLS} FROM chapters WHERE status = ?1 ORDER BY chapter_number"
+            ),
+            [status],
+        )
     }
 
-    pub fn get_chapter_id(conn: &Connection, chapter_number: i64) -> Result<Option<String>, String> {
+    pub fn get_chapter_id(
+        conn: &Connection,
+        chapter_number: i64,
+    ) -> Result<Option<String>, String> {
         match conn.query_row(
             "SELECT id FROM chapters WHERE chapter_number = ?1",
             [chapter_number],
@@ -141,11 +166,16 @@ fn map_version_row(row: &rusqlite::Row) -> rusqlite::Result<ChapterVersionRow> {
 pub struct ChapterVersionRepo;
 
 impl ChapterVersionRepo {
-    pub fn list_by_chapter(conn: &Connection, chapter_id: &str) -> Result<Vec<ChapterVersionRow>, String> {
+    pub fn list_by_chapter(
+        conn: &Connection,
+        chapter_id: &str,
+    ) -> Result<Vec<ChapterVersionRow>, String> {
         let mut stmt = conn
             .prepare("SELECT id, chapter_id, version_no, content_type, content, diff_summary, created_by, created_at FROM chapter_versions WHERE chapter_id = ?1 ORDER BY version_no DESC")
             .map_err(db_err)?;
-        let rows = stmt.query_map([chapter_id], map_version_row).map_err(db_err)?;
+        let rows = stmt
+            .query_map([chapter_id], map_version_row)
+            .map_err(db_err)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 }

@@ -27,9 +27,11 @@ fn do_check_project_risks(conn: &rusqlite::Connection) -> Result<Vec<RiskItem>, 
 
     // Determine the maximum chapter number for relative comparisons
     let max_chapter: i64 = conn
-        .query_row("SELECT COALESCE(MAX(chapter_number), 0) FROM chapters", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT COALESCE(MAX(chapter_number), 0) FROM chapters",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
 
     if max_chapter == 0 {
@@ -150,7 +152,9 @@ fn do_check_project_risks(conn: &rusqlite::Connection) -> Result<Vec<RiskItem>, 
             )
             .map_err(|e| e.to_string())?;
         let empty: Vec<(String, i64, Option<String>, String)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
@@ -245,16 +249,24 @@ fn do_check_project_risks(conn: &rusqlite::Connection) -> Result<Vec<RiskItem>, 
 }
 
 /// Extended risk rules from §33 of the design doc.
-fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items: &mut Vec<RiskItem>) -> Result<(), String> {
+fn do_check_extended_risks(
+    conn: &rusqlite::Connection,
+    max_chapter: i64,
+    items: &mut Vec<RiskItem>,
+) -> Result<(), String> {
     if max_chapter == 0 {
         return Ok(());
     }
 
     // ── Rule 5: 设定膨胀 — 近50章新增设定>15%原设定 ──
     {
-        let total_rules: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM canon_rules WHERE status = 'active'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_rules: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM canon_rules WHERE status = 'active'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
         if total_rules > 0 {
             // Count rules created in recent chapters range (approx via created_at)
@@ -269,7 +281,10 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
                 items.push(RiskItem {
                     risk_type: "setting_inflation".to_string(),
                     severity: "warning".to_string(),
-                    message: format!("近期新增设定占比{:.0}%，超过15%阈值，可能设定膨胀，建议合并或冻结部分设定", growth_pct),
+                    message: format!(
+                        "近期新增设定占比{:.0}%，超过15%阈值，可能设定膨胀，建议合并或冻结部分设定",
+                        growth_pct
+                    ),
                     related_entity: None,
                     chapter_number: None,
                 });
@@ -304,7 +319,10 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
                     items.push(RiskItem {
                         risk_type: "power_inflation".to_string(),
                         severity: "warning".to_string(),
-                        message: format!("主角近20章有{}次升级但代价铺垫不足({}项)，建议增加代价设定", recent_upgrades, costs),
+                        message: format!(
+                            "主角近20章有{}次升级但代价铺垫不足({}项)，建议增加代价设定",
+                            recent_upgrades, costs
+                        ),
                         related_entity: Some(pid),
                         chapter_number: None,
                     });
@@ -322,17 +340,22 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
                 |r| r.get(0)
             ).unwrap_or(0);
 
-            let recent_chapters: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM chapters WHERE chapter_number > ?1",
-                rusqlite::params![max_chapter - 5],
-                |r| r.get(0)
-            ).unwrap_or(0);
+            let recent_chapters: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM chapters WHERE chapter_number > ?1",
+                    rusqlite::params![max_chapter - 5],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
 
             if recent_chapters > 0 && recent_with_timeline == 0 {
                 items.push(RiskItem {
                     risk_type: "timeline_gap".to_string(),
                     severity: "info".to_string(),
-                    message: format!("连续{}章无时间线记录，建议补录时间线节点", recent_chapters.min(5)),
+                    message: format!(
+                        "连续{}章无时间线记录，建议补录时间线节点",
+                        recent_chapters.min(5)
+                    ),
                     related_entity: None,
                     chapter_number: Some(max_chapter),
                 });
@@ -342,31 +365,48 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
 
     // ── Rule 8: 章节字数异常 — 超出 min/max_chapter_words ──
     {
-        let min_words: i64 = conn.query_row(
-            "SELECT min_chapter_words FROM projects LIMIT 1", [], |r| r.get(0)
-        ).unwrap_or(1500);
-        let max_words: i64 = conn.query_row(
-            "SELECT max_chapter_words FROM projects LIMIT 1", [], |r| r.get(0)
-        ).unwrap_or(5000);
+        let min_words: i64 = conn
+            .query_row("SELECT min_chapter_words FROM projects LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap_or(1500);
+        let max_words: i64 = conn
+            .query_row("SELECT max_chapter_words FROM projects LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap_or(5000);
 
         let mut stmt = conn.prepare(
             "SELECT id, chapter_number, title, word_count FROM chapters WHERE word_count IS NOT NULL AND (word_count < ?1 OR word_count > ?2) ORDER BY chapter_number"
         ).map_err(|e| e.to_string())?;
 
-        let abnormal: Vec<(String, i64, Option<String>, i64)> = stmt.query_map(
-            rusqlite::params![min_words, max_words], |row| {
+        let abnormal: Vec<(String, i64, Option<String>, i64)> = stmt
+            .query_map(rusqlite::params![min_words, max_words], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-            }
-        ).map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok()).collect();
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
 
         for (id, cn, title, wc) in &abnormal {
-            let severity = if *wc < min_words / 2 || *wc > max_words * 2 { "warning" } else { "info" };
+            let severity = if *wc < min_words / 2 || *wc > max_words * 2 {
+                "warning"
+            } else {
+                "info"
+            };
             let direction = if *wc < min_words { "过短" } else { "过长" };
             items.push(RiskItem {
                 risk_type: "word_count_abnormal".to_string(),
                 severity: severity.to_string(),
-                message: format!("第{}章「{}」字数{}（{}字，范围{}~{}）", cn, title.as_deref().unwrap_or("未命名"), direction, wc, min_words, max_words),
+                message: format!(
+                    "第{}章「{}」字数{}（{}字，范围{}~{}）",
+                    cn,
+                    title.as_deref().unwrap_or("未命名"),
+                    direction,
+                    wc,
+                    min_words,
+                    max_words
+                ),
                 related_entity: Some(id.clone()),
                 chapter_number: Some(*cn),
             });
@@ -380,23 +420,36 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
                 "SELECT chapter_number, word_count FROM chapters WHERE word_count IS NOT NULL AND chapter_number > ?1 ORDER BY chapter_number"
             ).map_err(|e| e.to_string())?;
 
-            let words: Vec<(i64, i64)> = stmt.query_map(
-                rusqlite::params![max_chapter - 10], |row| Ok((row.get(0)?, row.get(1)?))
-            ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+            let words: Vec<(i64, i64)> = stmt
+                .query_map(rusqlite::params![max_chapter - 10], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
 
             if words.len() >= 5 {
                 let mut decreasing = true;
                 let mut increasing = true;
                 for i in 1..words.len() {
-                    if words[i].1 >= words[i-1].1 { decreasing = false; }
-                    if words[i].1 <= words[i-1].1 { increasing = false; }
+                    if words[i].1 >= words[i - 1].1 {
+                        decreasing = false;
+                    }
+                    if words[i].1 <= words[i - 1].1 {
+                        increasing = false;
+                    }
                 }
 
                 if decreasing {
                     items.push(RiskItem {
                         risk_type: "word_count_decreasing".to_string(),
                         severity: "info".to_string(),
-                        message: format!("近{}章字数持续递减（从{}字降至{}字），可能注水减少或节奏变化", words.len(), words[0].1, words.last().unwrap().1),
+                        message: format!(
+                            "近{}章字数持续递减（从{}字降至{}字），可能注水减少或节奏变化",
+                            words.len(),
+                            words[0].1,
+                            words.last().unwrap().1
+                        ),
                         related_entity: None,
                         chapter_number: Some(max_chapter),
                     });
@@ -405,7 +458,12 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
                     items.push(RiskItem {
                         risk_type: "word_count_increasing".to_string(),
                         severity: "info".to_string(),
-                        message: format!("近{}章字数持续递增（从{}字升至{}字），可能描写膨胀", words.len(), words[0].1, words.last().unwrap().1),
+                        message: format!(
+                            "近{}章字数持续递增（从{}字升至{}字），可能描写膨胀",
+                            words.len(),
+                            words[0].1,
+                            words.last().unwrap().1
+                        ),
                         related_entity: None,
                         chapter_number: Some(max_chapter),
                     });
@@ -432,7 +490,12 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
             items.push(RiskItem {
                 risk_type: "writing_speed_drop".to_string(),
                 severity: "info".to_string(),
-                message: format!("近7天日均{:.0}字，仅为近30天日均{:.0}字的{:.0}%，写作效率下降", daily_7d, daily_30d, (daily_7d / daily_30d * 100.0)),
+                message: format!(
+                    "近7天日均{:.0}字，仅为近30天日均{:.0}字的{:.0}%，写作效率下降",
+                    daily_7d,
+                    daily_30d,
+                    (daily_7d / daily_30d * 100.0)
+                ),
                 related_entity: None,
                 chapter_number: None,
             });
@@ -445,13 +508,20 @@ fn do_check_extended_risks(conn: &rusqlite::Connection, max_chapter: i64, items:
             "SELECT chapter_number, review_status FROM chapters WHERE review_status IS NOT NULL AND review_status != '' ORDER BY chapter_number DESC LIMIT 3"
         ).map_err(|e| e.to_string())?;
 
-        let recent_reviews: Vec<(i64, String)> = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+        let recent_reviews: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
 
-        let ai_flagged = recent_reviews.iter().filter(|(_, status)| {
-            status.contains("ai_residual") || status.contains("voice_fix") || status.contains("high_ai")
-        }).count();
+        let ai_flagged = recent_reviews
+            .iter()
+            .filter(|(_, status)| {
+                status.contains("ai_residual")
+                    || status.contains("voice_fix")
+                    || status.contains("high_ai")
+            })
+            .count();
 
         if ai_flagged >= 3 {
             items.push(RiskItem {
@@ -477,7 +547,13 @@ pub fn check_project_risks(db: State<'_, DbState>) -> Result<RiskReport, String>
     let mut items = do_check_project_risks(conn)?;
 
     // Add extended §33 risk rules
-    let max_chapter: i64 = conn.query_row("SELECT COALESCE(MAX(chapter_number), 0) FROM chapters", [], |r| r.get(0)).unwrap_or(0);
+    let max_chapter: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(chapter_number), 0) FROM chapters",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
     do_check_extended_risks(conn, max_chapter, &mut items)?;
 
     let total_risks = items.len();
@@ -538,7 +614,9 @@ pub struct ProjectHealthReport {
 
 /// Generate a comprehensive project health report aggregating data from all checkers.
 #[tauri::command]
-pub fn generate_project_health_report(db: State<'_, DbState>) -> Result<ProjectHealthReport, String> {
+pub fn generate_project_health_report(
+    db: State<'_, DbState>,
+) -> Result<ProjectHealthReport, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -605,7 +683,8 @@ pub fn generate_project_health_report(db: State<'_, DbState>) -> Result<ProjectH
         .unwrap_or(0);
 
     let foreshadow_health_pct = if foreshadow_total > 0 {
-        ((foreshadow_resolved as f64 + foreshadow_planted as f64 * 0.5) / foreshadow_total as f64) * 100.0
+        ((foreshadow_resolved as f64 + foreshadow_planted as f64 * 0.5) / foreshadow_total as f64)
+            * 100.0
     } else {
         100.0
     };
@@ -668,9 +747,7 @@ pub fn generate_project_health_report(db: State<'_, DbState>) -> Result<ProjectH
     };
 
     let mut sorted_risks = all_risks.clone();
-    sorted_risks.sort_by(|a, b| {
-        severity_score(&b.severity).cmp(&severity_score(&a.severity))
-    });
+    sorted_risks.sort_by(|a, b| severity_score(&b.severity).cmp(&severity_score(&a.severity)));
     let top_risks: Vec<RiskItem> = sorted_risks.into_iter().take(5).collect();
 
     // ── Overall score (weighted) ──

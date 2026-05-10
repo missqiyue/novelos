@@ -87,7 +87,10 @@ pub fn start_retcon_workflow(
 
     // Step 2: Run impact analysis
     let impact_report = crate::commands::retcon::analyze_retcon_impact_inner(
-        conn, &target_type, &target_ref, &reason,
+        conn,
+        &target_type,
+        &target_ref,
+        &reason,
     )?;
 
     // Step 3: Check hard rules
@@ -162,7 +165,8 @@ pub fn continue_retcon_workflow(
     conn.execute(
         "UPDATE retcon_requests SET scheme = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![scheme_type, now, retcon_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     if !confirm {
         return Ok(RetconWorkflowState {
@@ -181,12 +185,19 @@ pub fn continue_retcon_workflow(
     }
 
     // Step 5: Approve
-    let current_status: String = conn.query_row(
-        "SELECT status FROM retcon_requests WHERE id = ?1", [&retcon_id], |r| r.get(0)
-    ).map_err(|e| format!("Retcon request not found: {}", e))?;
+    let current_status: String = conn
+        .query_row(
+            "SELECT status FROM retcon_requests WHERE id = ?1",
+            [&retcon_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Retcon request not found: {}", e))?;
 
     if current_status != "pending" {
-        return Err(format!("Cannot approve retcon in '{}' status. Must be 'pending'.", current_status));
+        return Err(format!(
+            "Cannot approve retcon in '{}' status. Must be 'pending'.",
+            current_status
+        ));
     }
 
     conn.execute(
@@ -199,10 +210,14 @@ pub fn continue_retcon_workflow(
     conn.execute(
         "UPDATE retcon_requests SET status = 'executing', updated_at = ?1 WHERE id = ?2",
         rusqlite::params![now, retcon_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     let impact = crate::commands::retcon::analyze_retcon_impact_inner(
-        conn, &request.target_type, &request.target_ref, &request.reason,
+        conn,
+        &request.target_type,
+        &request.target_ref,
+        &request.reason,
     )?;
     let affected_chapters = impact.affected_chapters;
 
@@ -247,7 +262,10 @@ pub fn complete_retcon_workflow(
     let request = crate::commands::retcon::get_retcon_request_inner(conn, &retcon_id)?;
 
     let impact = crate::commands::retcon::analyze_retcon_impact_inner(
-        conn, &request.target_type, &request.target_ref, &request.reason,
+        conn,
+        &request.target_type,
+        &request.target_ref,
+        &request.reason,
     )?;
     let affected_chapters = impact.affected_chapters;
 
@@ -265,7 +283,9 @@ pub fn complete_retcon_workflow(
             Some(t) if !t.trim().is_empty() => t,
             _ => {
                 needs_attention.push(crate::commands::retcon::ChapterCheckResult {
-                    chapter_number: *chapter_number, status: "warning".to_string(), score: 0,
+                    chapter_number: *chapter_number,
+                    status: "warning".to_string(),
+                    score: 0,
                 });
                 failed_count += 1;
                 continue;
@@ -278,18 +298,25 @@ pub fn complete_retcon_workflow(
         } else {
             failed_count += 1;
             needs_attention.push(crate::commands::retcon::ChapterCheckResult {
-                chapter_number: *chapter_number, status: result.status, score: result.score,
+                chapter_number: *chapter_number,
+                status: result.status,
+                score: result.score,
             });
         }
     }
 
     let post_check = crate::commands::retcon::PostCheckResult {
-        passed_count, failed_count, needs_attention,
+        passed_count,
+        failed_count,
+        needs_attention,
     };
 
     let mut warnings = Vec::new();
     if post_check.failed_count > 0 {
-        warnings.push(format!("有{}章回归编译失败，需要人工检查", post_check.failed_count));
+        warnings.push(format!(
+            "有{}章回归编译失败，需要人工检查",
+            post_check.failed_count
+        ));
     }
 
     // Step 8: Update snapshots — regenerate for each affected chapter
@@ -300,9 +327,19 @@ pub fn complete_retcon_workflow(
             rusqlite::params![chapter_number],
         ).map_err(|e| e.to_string())?;
 
-        match crate::commands::snapshot::create_snapshot_for_chapter(conn, &project_id, *chapter_number) {
+        match crate::commands::snapshot::create_snapshot_for_chapter(
+            conn,
+            &project_id,
+            *chapter_number,
+        ) {
             Ok(_) => snapshots_regenerated += 1,
-            Err(e) => { log::warn!("Failed to regenerate snapshot for chapter {}: {}", chapter_number, e); }
+            Err(e) => {
+                log::warn!(
+                    "Failed to regenerate snapshot for chapter {}: {}",
+                    chapter_number,
+                    e
+                );
+            }
         }
     }
 
@@ -311,10 +348,14 @@ pub fn complete_retcon_workflow(
     conn.execute(
         "UPDATE retcon_requests SET status = 'completed', updated_at = ?1 WHERE id = ?2",
         rusqlite::params![now, retcon_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     crate::commands::ledger::notify_pipeline_event(
-        conn, &project_id, "retcon", "info",
+        conn,
+        &project_id,
+        "retcon",
+        "info",
         &format!("修史完成：已重新生成{}个章节快照", snapshots_regenerated),
     );
 
@@ -360,7 +401,10 @@ pub fn rollback_retcon(
     ).map_err(|e| e.to_string())?;
 
     crate::commands::ledger::notify_pipeline_event(
-        conn, &project_id, "retcon", "warning",
+        conn,
+        &project_id,
+        "retcon",
+        "warning",
         &format!("修史已回滚：{}", reason),
     );
 
@@ -381,23 +425,33 @@ pub fn rollback_retcon(
 
 // ─── Helpers ───
 
-fn check_hard_rule_impact(conn: &rusqlite::Connection, target_type: &str, target_ref: &str) -> Result<bool, String> {
+fn check_hard_rule_impact(
+    conn: &rusqlite::Connection,
+    target_type: &str,
+    target_ref: &str,
+) -> Result<bool, String> {
     match target_type {
         "canon" => {
-            let is_hard: bool = conn.query_row(
-                "SELECT is_hard != 0 FROM canon_rules WHERE id = ?1",
-                [target_ref],
-                |row| row.get(0),
-            ).unwrap_or(false);
+            let is_hard: bool = conn
+                .query_row(
+                    "SELECT is_hard != 0 FROM canon_rules WHERE id = ?1",
+                    [target_ref],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
             Ok(is_hard)
         }
         "chapter" | "character" => {
             let mut stmt = conn.prepare(
                 "SELECT rule_name, content FROM canon_rules WHERE status = 'active' AND is_hard = 1"
             ).map_err(|e| e.to_string())?;
-            let hard_rules: Vec<(String, String)> = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+            let hard_rules: Vec<(String, String)> = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
 
             for (name, content) in &hard_rules {
                 if content.contains(target_ref) || name.contains(target_ref) {
@@ -410,13 +464,23 @@ fn check_hard_rule_impact(conn: &rusqlite::Connection, target_type: &str, target
     }
 }
 
-fn get_hard_rule_details(conn: &rusqlite::Connection, target_type: &str, target_ref: &str) -> Result<String, String> {
-    let mut stmt = conn.prepare(
-        "SELECT rule_name, content FROM canon_rules WHERE status = 'active' AND is_hard = 1"
-    ).map_err(|e| e.to_string())?;
-    let hard_rules: Vec<(String, String)> = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+fn get_hard_rule_details(
+    conn: &rusqlite::Connection,
+    target_type: &str,
+    target_ref: &str,
+) -> Result<String, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT rule_name, content FROM canon_rules WHERE status = 'active' AND is_hard = 1",
+        )
+        .map_err(|e| e.to_string())?;
+    let hard_rules: Vec<(String, String)> = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let mut details = String::new();
     for (name, content) in &hard_rules {

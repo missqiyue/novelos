@@ -89,7 +89,11 @@ mod snapshot_tests {
                 _ => vec![],
             };
             let is_valid = valid_targets.contains(to);
-            assert_eq!(is_valid, *expected, "Transition {} -> {} should be {}", from, to, expected);
+            assert_eq!(
+                is_valid, *expected,
+                "Transition {} -> {} should be {}",
+                from, to, expected
+            );
         }
     }
 }

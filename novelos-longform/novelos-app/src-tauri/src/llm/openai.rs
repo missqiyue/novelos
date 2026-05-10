@@ -90,19 +90,40 @@ impl OpenAiProvider {
     }
 }
 
+fn summarize_body(text: &str) -> String {
+    let compact = text.replace('\n', " ").replace('\r', " ");
+    if compact.len() <= 200 {
+        compact
+    } else {
+        let preview: String = compact.chars().take(200).collect();
+        format!("{}...", preview)
+    }
+}
+
 impl LlmProvider for OpenAiProvider {
     fn chat_completion(
         &self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let body = OpenAiRequest {
             model: self.config.model.clone(),
             messages: messages
                 .into_iter()
-                .map(|m| OpenAiMessage { role: m.role, content: m.content })
+                .map(|m| OpenAiMessage {
+                    role: m.role,
+                    content: m.content,
+                })
                 .collect(),
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
@@ -138,13 +159,33 @@ impl LlmProvider for OpenAiProvider {
                         return Err(format!("LLM API error ({}): {}", status, text));
                     }
 
-                    response.json::<OpenAiResponse>().await
-                        .map_err(|e| format!("JSON parse error: {}", e))
+                    let text = response.text().await.unwrap_or_default();
+                    if text.trim().is_empty() {
+                        return Err(format!(
+                            "OpenAI API returned empty body (HTTP {}). This may indicate a timeout, content filter, or API issue with max_tokens={}.",
+                            status.as_u16(),
+                            body.max_tokens,
+                        ));
+                    }
+                    serde_json::from_str::<OpenAiResponse>(&text).map_err(|e| {
+                        let snippet = summarize_body(&text);
+                        let hint = if text.contains("\"type\":\"message\"") || text.contains("\"anthropic-version\"") {
+                            "；返回体看起来更像 Anthropic 格式，请检查 Provider 是否应改为 `anthropic`"
+                        } else {
+                            ""
+                        };
+                        format!("JSON parse error: {}；response snippet: {}{}", e, snippet, hint)
+                    })
                 }
             }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
 
             Ok(ChatResponse {
-                content: api_resp.choices.first().map(|c| c.message.content.clone()).unwrap_or_default(),
+                content: api_resp
+                    .choices
+                    .first()
+                    .map(|c| c.message.content.clone())
+                    .unwrap_or_default(),
+                reasoning_content: String::new(),
                 prompt_tokens: api_resp.usage.prompt_tokens,
                 completion_tokens: api_resp.usage.completion_tokens,
                 total_tokens: api_resp.usage.total_tokens,
@@ -157,12 +198,19 @@ impl LlmProvider for OpenAiProvider {
         self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn tokio_stream::Stream<Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>> + Send>,
+        Box<
+            dyn tokio_stream::Stream<
+                    Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send,
+        >,
     >
     where
         Self: Sized + Send + 'static,
     {
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let api_key = self.config.api_key.clone();
         let model = self.config.model.clone();
         let max_tokens = self.config.max_tokens;
@@ -170,7 +218,10 @@ impl LlmProvider for OpenAiProvider {
 
         let openai_messages: Vec<OpenAiMessage> = messages
             .into_iter()
-            .map(|m| OpenAiMessage { role: m.role, content: m.content })
+            .map(|m| OpenAiMessage {
+                role: m.role,
+                content: m.content,
+            })
             .collect();
 
         let client = self.client;
@@ -223,6 +274,7 @@ impl LlmProvider for OpenAiProvider {
                     if data == "[DONE]" {
                         yield Ok(StreamChunk {
                             delta: String::new(),
+                            reasoning_delta: String::new(),
                             done: true,
                             prompt_tokens: 0,
                             completion_tokens: 0,
@@ -238,6 +290,7 @@ impl LlmProvider for OpenAiProvider {
                                 let done = choice.finish_reason.as_deref() == Some("stop");
                                 yield Ok(StreamChunk {
                                     delta,
+                                    reasoning_delta: String::new(),
                                     done,
                                     prompt_tokens: 0,
                                     completion_tokens: 0,
@@ -260,7 +313,12 @@ impl LlmProvider for OpenAiProvider {
         text: &str,
         model: &str,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
         let url = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));
         let api_key = self.config.api_key.clone();
@@ -273,7 +331,10 @@ impl LlmProvider for OpenAiProvider {
                 let client = client.clone();
                 let url = url.clone();
                 let api_key = api_key.clone();
-                let body = OpenAiEmbedRequest { model: model.clone(), input: input.clone() };
+                let body = OpenAiEmbedRequest {
+                    model: model.clone(),
+                    input: input.clone(),
+                };
                 async move {
                     let response = client
                         .post(&url)
@@ -294,10 +355,14 @@ impl LlmProvider for OpenAiProvider {
                         return Err(format!("Embedding API error ({}): {}", status, text));
                     }
 
-                    response.json::<OpenAiEmbedResponse>().await
+                    response
+                        .json::<OpenAiEmbedResponse>()
+                        .await
                         .map_err(|e| format!("JSON parse error: {}", e))
                 }
-            }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
+            })
+            .await
+            .map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
 
             let embedding = api_resp
                 .data

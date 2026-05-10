@@ -139,38 +139,67 @@ pub fn assemble_recall_context(
 
     let task_card_text = fetch_task_card(conn, input.chapter_number);
     if !task_card_text.is_empty() {
-        items.push(RecallItem { priority: RecallPriority::P0, source: "task_card".to_string(), text: task_card_text });
+        items.push(RecallItem {
+            priority: RecallPriority::P0,
+            source: "task_card".to_string(),
+            text: task_card_text,
+        });
     }
 
     let hard_rules_text = fetch_hard_rules(conn);
     if !hard_rules_text.is_empty() {
-        items.push(RecallItem { priority: RecallPriority::P1, source: "hard_rules".to_string(), text: hard_rules_text });
+        items.push(RecallItem {
+            priority: RecallPriority::P1,
+            source: "hard_rules".to_string(),
+            text: hard_rules_text,
+        });
     }
 
-    let char_states_text = fetch_character_states(conn, input.chapter_number, input.character_ids.as_deref());
+    let char_states_text =
+        fetch_character_states(conn, input.chapter_number, input.character_ids.as_deref());
     if !char_states_text.is_empty() {
-        items.push(RecallItem { priority: RecallPriority::P2, source: "character_states".to_string(), text: char_states_text });
+        items.push(RecallItem {
+            priority: RecallPriority::P2,
+            source: "character_states".to_string(),
+            text: char_states_text,
+        });
     }
 
     let snapshot_text = fetch_recent_snapshot(conn, input.chapter_number);
     if !snapshot_text.is_empty() {
-        items.push(RecallItem { priority: RecallPriority::P3, source: "snapshot".to_string(), text: snapshot_text });
+        items.push(RecallItem {
+            priority: RecallPriority::P3,
+            source: "snapshot".to_string(),
+            text: snapshot_text,
+        });
     }
 
     let foreshadow_events_text = fetch_foreshadows_and_events(conn, input.chapter_number);
     if !foreshadow_events_text.is_empty() {
-        items.push(RecallItem { priority: RecallPriority::P4, source: "foreshadows_events".to_string(), text: foreshadow_events_text });
+        items.push(RecallItem {
+            priority: RecallPriority::P4,
+            source: "foreshadows_events".to_string(),
+            text: foreshadow_events_text,
+        });
     }
 
     let soft_rules_text = fetch_soft_rules(conn);
     if !soft_rules_text.is_empty() {
-        items.push(RecallItem { priority: RecallPriority::P5, source: "soft_rules".to_string(), text: soft_rules_text });
+        items.push(RecallItem {
+            priority: RecallPriority::P5,
+            source: "soft_rules".to_string(),
+            text: soft_rules_text,
+        });
     }
 
     if let Some(ref query) = input.fts_query {
         let fts_text = fetch_fts_results(conn, query);
         if !fts_text.is_empty() {
-            items.push(RecallItem { priority: RecallPriority::P6, source: "fts".to_string(), text: fts_text });
+            items.push(RecallItem {
+                priority: RecallPriority::P6,
+                source: "fts".to_string(),
+                text: fts_text,
+            });
         }
     }
 
@@ -195,26 +224,68 @@ pub async fn full_recall_context(
         let mut items: Vec<RecallItem> = Vec::new();
 
         let t = fetch_task_card(conn, input.chapter_number);
-        if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P0, source: "task_card".to_string(), text: t }); }
+        if !t.is_empty() {
+            items.push(RecallItem {
+                priority: RecallPriority::P0,
+                source: "task_card".to_string(),
+                text: t,
+            });
+        }
 
         let t = fetch_hard_rules(conn);
-        if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P1, source: "hard_rules".to_string(), text: t }); }
+        if !t.is_empty() {
+            items.push(RecallItem {
+                priority: RecallPriority::P1,
+                source: "hard_rules".to_string(),
+                text: t,
+            });
+        }
 
         let t = fetch_character_states(conn, input.chapter_number, input.character_ids.as_deref());
-        if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P2, source: "character_states".to_string(), text: t }); }
+        if !t.is_empty() {
+            items.push(RecallItem {
+                priority: RecallPriority::P2,
+                source: "character_states".to_string(),
+                text: t,
+            });
+        }
 
         let t = fetch_recent_snapshot(conn, input.chapter_number);
-        if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P3, source: "snapshot".to_string(), text: t }); }
+        if !t.is_empty() {
+            items.push(RecallItem {
+                priority: RecallPriority::P3,
+                source: "snapshot".to_string(),
+                text: t,
+            });
+        }
 
         let t = fetch_foreshadows_and_events(conn, input.chapter_number);
-        if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P4, source: "foreshadows_events".to_string(), text: t }); }
+        if !t.is_empty() {
+            items.push(RecallItem {
+                priority: RecallPriority::P4,
+                source: "foreshadows_events".to_string(),
+                text: t,
+            });
+        }
 
         let t = fetch_soft_rules(conn);
-        if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P5, source: "soft_rules".to_string(), text: t }); }
+        if !t.is_empty() {
+            items.push(RecallItem {
+                priority: RecallPriority::P5,
+                source: "soft_rules".to_string(),
+                text: t,
+            });
+        }
 
         if let Some(ref query) = input.fts_query {
             let t = fetch_fts_results(conn, query);
-            if !t.is_empty() { items.push(RecallItem { priority: RecallPriority::P6, source: "fts".to_string(), text: t }); }
+            if !t.is_empty() {
+                items.push(RecallItem {
+                    priority: RecallPriority::P6,
+                    source: "fts".to_string(),
+                    text: t,
+                });
+            }
         }
 
         assemble_with_budget(items, budget_chars)?
@@ -258,14 +329,34 @@ pub fn fetch_task_card(conn: &rusqlite::Connection, chapter_number: i64) -> Stri
     );
 
     match result {
-        Ok((objective, must_progress, must_recall, must_avoid, required_hooks, required_context, ending_hook)) => {
+        Ok((
+            objective,
+            must_progress,
+            must_recall,
+            must_avoid,
+            required_hooks,
+            required_context,
+            ending_hook,
+        )) => {
             let mut text = format!("【任务卡】\n目标: {}", objective);
-            if let Some(ref p) = must_progress { text.push_str(&format!("\n必须推进: {}", p)); }
-            if let Some(ref r) = must_recall { text.push_str(&format!("\n必须回顾: {}", r)); }
-            if let Some(ref a) = must_avoid { text.push_str(&format!("\n必须避免: {}", a)); }
-            if let Some(ref h) = required_hooks { text.push_str(&format!("\n必要钩子: {}", h)); }
-            if let Some(ref c) = required_context { text.push_str(&format!("\n必要上下文: {}", c)); }
-            if let Some(ref e) = ending_hook { text.push_str(&format!("\n结尾钩子: {}", e)); }
+            if let Some(ref p) = must_progress {
+                text.push_str(&format!("\n必须推进: {}", p));
+            }
+            if let Some(ref r) = must_recall {
+                text.push_str(&format!("\n必须回顾: {}", r));
+            }
+            if let Some(ref a) = must_avoid {
+                text.push_str(&format!("\n必须避免: {}", a));
+            }
+            if let Some(ref h) = required_hooks {
+                text.push_str(&format!("\n必要钩子: {}", h));
+            }
+            if let Some(ref c) = required_context {
+                text.push_str(&format!("\n必要上下文: {}", c));
+            }
+            if let Some(ref e) = ending_hook {
+                text.push_str(&format!("\n结尾钩子: {}", e));
+            }
             text
         }
         Err(_) => String::new(),
@@ -298,7 +389,11 @@ pub fn fetch_hard_rules(conn: &rusqlite::Connection) -> String {
     text
 }
 
-pub fn fetch_character_states(conn: &rusqlite::Connection, chapter_number: i64, character_ids: Option<&[String]>) -> String {
+pub fn fetch_character_states(
+    conn: &rusqlite::Connection,
+    chapter_number: i64,
+    character_ids: Option<&[String]>,
+) -> String {
     // If specific character IDs are provided, filter to only those characters
     let sql = if character_ids.map_or(false, |ids| !ids.is_empty()) {
         "SELECT c.name, cs.level_state, cs.emotion_state, cs.goal_state, cs.physical_state, cs.location_id \
@@ -319,12 +414,24 @@ pub fn fetch_character_states(conn: &rusqlite::Connection, chapter_number: i64, 
         Err(_) => return String::new(),
     };
 
-    let ids_json = character_ids.map(|ids| {
-        let items: Vec<String> = ids.iter().map(|id| format!("\"{}\"", id.replace('"', "\\\""))).collect();
-        format!("[{}]", items.join(","))
-    }).unwrap_or_default();
+    let ids_json = character_ids
+        .map(|ids| {
+            let items: Vec<String> = ids
+                .iter()
+                .map(|id| format!("\"{}\"", id.replace('"', "\\\"")))
+                .collect();
+            format!("[{}]", items.join(","))
+        })
+        .unwrap_or_default();
 
-    let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = if character_ids.map_or(false, |ids| !ids.is_empty()) {
+    let rows: Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = if character_ids.map_or(false, |ids| !ids.is_empty()) {
         match stmt.query_map(rusqlite::params![chapter_number, ids_json], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -361,11 +468,21 @@ pub fn fetch_character_states(conn: &rusqlite::Connection, chapter_number: i64, 
     let mut text = String::from("【角色状态】\n");
     for (name, level, emotion, goal, physical, location) in &rows {
         let mut parts = vec![name.clone()];
-        if let Some(ref l) = level { parts.push(format!("等级:{}", l)); }
-        if let Some(ref e) = emotion { parts.push(format!("情绪:{}", e)); }
-        if let Some(ref g) = goal { parts.push(format!("目标:{}", g)); }
-        if let Some(ref p) = physical { parts.push(format!("身体:{}", p)); }
-        if let Some(ref loc) = location { parts.push(format!("位置:{}", loc)); }
+        if let Some(ref l) = level {
+            parts.push(format!("等级:{}", l));
+        }
+        if let Some(ref e) = emotion {
+            parts.push(format!("情绪:{}", e));
+        }
+        if let Some(ref g) = goal {
+            parts.push(format!("目标:{}", g));
+        }
+        if let Some(ref p) = physical {
+            parts.push(format!("身体:{}", p));
+        }
+        if let Some(ref loc) = location {
+            parts.push(format!("位置:{}", loc));
+        }
         text.push_str(&format!("- {}\n", parts.join(" ")));
     }
     text
@@ -424,9 +541,10 @@ pub fn fetch_foreshadows_and_events(conn: &rusqlite::Connection, chapter_number:
             Ok(s) => s,
             Err(_) => return text,
         };
-        let rows: Vec<(String, i64, Option<String>)> = match stmt.query_map([chapter_number], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }) {
+        let rows: Vec<(String, i64, Option<String>)> = match stmt
+            .query_map([chapter_number], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            }) {
             Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
             Err(_) => Vec::new(),
         };
@@ -434,7 +552,10 @@ pub fn fetch_foreshadows_and_events(conn: &rusqlite::Connection, chapter_number:
         if !rows.is_empty() {
             text.push_str("【未回收伏笔】\n");
             for (title, seed, importance) in &rows {
-                let imp = importance.as_ref().map(|i| format!("[重要度:{}]", i)).unwrap_or_default();
+                let imp = importance
+                    .as_ref()
+                    .map(|i| format!("[重要度:{}]", i))
+                    .unwrap_or_default();
                 text.push_str(&format!("- {}「{}」(种子第{}章)\n", imp, title, seed));
             }
         }
@@ -448,9 +569,10 @@ pub fn fetch_foreshadows_and_events(conn: &rusqlite::Connection, chapter_number:
             Ok(s) => s,
             Err(_) => return text,
         };
-        let rows: Vec<(Option<i64>, String, Option<String>)> = match stmt.query_map([chapter_number], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }) {
+        let rows: Vec<(Option<i64>, String, Option<String>)> = match stmt
+            .query_map([chapter_number], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            }) {
             Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
             Err(_) => Vec::new(),
         };
@@ -460,7 +582,13 @@ pub fn fetch_foreshadows_and_events(conn: &rusqlite::Connection, chapter_number:
             for (day, summary, participants) in &rows {
                 let day_str = day.map(|d| format!("第{}天", d)).unwrap_or_default();
                 let parts = participants.as_deref().unwrap_or("");
-                text.push_str(&format!("- {} {}: {}{}\n", day_str, summary, if parts.is_empty() { "" } else { " (" }, parts));
+                text.push_str(&format!(
+                    "- {} {}: {}{}\n",
+                    day_str,
+                    summary,
+                    if parts.is_empty() { "" } else { " (" },
+                    parts
+                ));
             }
         }
     }
@@ -476,9 +604,8 @@ pub fn fetch_soft_rules(conn: &rusqlite::Connection) -> String {
         Err(_) => return String::new(),
     };
 
-    let rows: Vec<(String, String)> = match stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    }) {
+    let rows: Vec<(String, String)> = match stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+    {
         Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
         Err(_) => return String::new(),
     };
@@ -509,12 +636,11 @@ fn fetch_fts_results(conn: &rusqlite::Connection, query: &str) -> String {
         Err(_) => return String::new(),
     };
 
-    let rows: Vec<(i64, Option<String>, String)> = match stmt.query_map([&search], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    }) {
-        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
-        Err(_) => return String::new(),
-    };
+    let rows: Vec<(i64, Option<String>, String)> =
+        match stmt.query_map([&search], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(_) => return String::new(),
+        };
 
     if rows.is_empty() {
         return String::new();
@@ -594,16 +720,22 @@ async fn fetch_rag_results_with_intent(
     let mut text = String::from("【语义召回(RAG)】\n");
     for (chapter_number, chunk_text, similarity) in &raw_results {
         let score = (similarity * 100.0) as i32;
-        text.push_str(&format!("- 第{}章(相似度:{}%): {}...\n",
-            chapter_number, score,
-            chunk_text.chars().take(200).collect::<String>()));
+        text.push_str(&format!(
+            "- 第{}章(相似度:{}%): {}...\n",
+            chapter_number,
+            score,
+            chunk_text.chars().take(200).collect::<String>()
+        ));
     }
     text
 }
 
 // ─── Budget-Controlled Assembly (RCL-002) ───
 
-fn assemble_with_budget(items: Vec<RecallItem>, budget_chars: usize) -> Result<AssembledRecallContext, String> {
+fn assemble_with_budget(
+    items: Vec<RecallItem>,
+    budget_chars: usize,
+) -> Result<AssembledRecallContext, String> {
     let mut protected_text = String::new();
     let mut trimmable_items: Vec<&RecallItem> = Vec::new();
     let mut layers = RecallLayers::default();
@@ -667,7 +799,10 @@ fn assemble_with_budget(items: Vec<RecallItem>, budget_chars: usize) -> Result<A
                     _ => {}
                 }
             } else {
-                let truncated: String = section.chars().take(chars_remaining.saturating_sub(20)).collect();
+                let truncated: String = section
+                    .chars()
+                    .take(chars_remaining.saturating_sub(20))
+                    .collect();
                 trimmable_text.push_str(&truncated);
                 trimmable_text.push_str("\n...(已截断)");
                 let tokens = truncated.chars().count() / CHARS_PER_TOKEN;
@@ -705,11 +840,9 @@ fn assemble_with_budget(items: Vec<RecallItem>, budget_chars: usize) -> Result<A
 
 /// Fetch genre_id from project metadata.
 pub fn fetch_genre(conn: &rusqlite::Connection) -> String {
-    conn.query_row(
-        "SELECT genre_id FROM projects LIMIT 1",
-        [],
-        |row| row.get::<_, Option<String>>(0),
-    )
+    conn.query_row("SELECT genre_id FROM projects LIMIT 1", [], |row| {
+        row.get::<_, Option<String>>(0)
+    })
     .ok()
     .flatten()
     .unwrap_or_else(|| "通用".to_string())
@@ -722,21 +855,31 @@ pub fn fetch_volume_outline(conn: &rusqlite::Connection, chapter_number: i64) ->
     let result = conn.query_row(
         "SELECT title, goal, main_conflict, climax FROM volumes WHERE volume_number = ?1",
         [volume_number],
-        |row| Ok((
-            row.get::<_, Option<String>>(0)?,
-            row.get::<_, Option<String>>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-        )),
+        |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        },
     );
 
     match result {
         Ok((title, goal, conflict, climax)) => {
             let mut text = String::from("【卷纲】\n");
-            if let Some(t) = title { text.push_str(&format!("卷名: {}\n", t)); }
-            if let Some(g) = goal { text.push_str(&format!("目标: {}\n", g)); }
-            if let Some(c) = conflict { text.push_str(&format!("冲突: {}\n", c)); }
-            if let Some(cl) = climax { text.push_str(&format!("爆点: {}\n", cl)); }
+            if let Some(t) = title {
+                text.push_str(&format!("卷名: {}\n", t));
+            }
+            if let Some(g) = goal {
+                text.push_str(&format!("目标: {}\n", g));
+            }
+            if let Some(c) = conflict {
+                text.push_str(&format!("冲突: {}\n", c));
+            }
+            if let Some(cl) = climax {
+                text.push_str(&format!("爆点: {}\n", cl));
+            }
             text
         }
         Err(_) => String::new(),
@@ -745,17 +888,31 @@ pub fn fetch_volume_outline(conn: &rusqlite::Connection, chapter_number: i64) ->
 
 /// Fetch recent chapter outlines for context.
 pub fn fetch_chapter_outlines(conn: &rusqlite::Connection, chapter_number: i64) -> String {
-    let start = (chapter_number - 5).max(1);
+    let start = (chapter_number - 3).max(1);
     let mut stmt = match conn.prepare(
-        "SELECT chapter_number, outline_text FROM chapter_outlines WHERE chapter_number >= ?1 AND chapter_number < ?2 AND confirmed = 1 ORDER BY chapter_number DESC LIMIT 3"
+        "SELECT co.chapter_number, co.content_json
+         FROM chapter_outlines co
+         JOIN (
+             SELECT chapter_number, MAX(version) AS version
+             FROM chapter_outlines
+             WHERE chapter_number >= ?1
+               AND chapter_number < ?2
+               AND (confirmed = 1 OR status = 'generated')
+             GROUP BY chapter_number
+         ) latest
+           ON latest.chapter_number = co.chapter_number
+          AND latest.version = co.version
+         ORDER BY co.chapter_number DESC
+         LIMIT 3"
     ) {
         Ok(s) => s,
         Err(_) => return String::new(),
     };
 
-    let rows: Vec<(i64, Option<String>)> = match stmt.query_map(rusqlite::params![start, chapter_number], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    }) {
+    let rows: Vec<(i64, Option<String>)> = match stmt
+        .query_map(rusqlite::params![start, chapter_number], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        }) {
         Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
         Err(_) => return String::new(),
     };
@@ -781,9 +938,8 @@ pub fn fetch_soul_templates(conn: &rusqlite::Connection) -> String {
         Err(_) => return String::new(),
     };
 
-    let rows: Vec<(String, String)> = match stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    }) {
+    let rows: Vec<(String, String)> = match stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+    {
         Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
         Err(_) => return String::new(),
     };
@@ -816,15 +972,22 @@ pub fn fetch_relationship_states(conn: &rusqlite::Connection) -> String {
          JOIN characters c1 ON rs.character_a_id = c1.id \
          JOIN characters c2 ON rs.character_b_id = c2.id \
          WHERE rs.strength IS NOT NULL \
-         ORDER BY rs.strength DESC LIMIT 10"
+         ORDER BY rs.strength DESC LIMIT 10",
     ) {
         Ok(s) => s,
         Err(_) => return String::new(),
     };
 
-    let rows: Vec<(String, String, Option<String>, Option<i64>, Option<i64>)> = match stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
-    }) {
+    let rows: Vec<(String, String, Option<String>, Option<i64>, Option<i64>)> = match stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        }) {
         Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
         Err(_) => return String::new(),
     };
@@ -836,9 +999,16 @@ pub fn fetch_relationship_states(conn: &rusqlite::Connection) -> String {
     let mut text = String::from("【角色关系】\n");
     for (name_a, name_b, rel_type, strength, trust) in &rows {
         let rt = rel_type.as_deref().unwrap_or("未知");
-        let s = strength.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-        let t = trust.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
-        text.push_str(&format!("- {} ↔ {} ({}): 强度={}, 信任={}\n", name_a, name_b, rt, s, t));
+        let s = strength
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let t = trust
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        text.push_str(&format!(
+            "- {} ↔ {} ({}): 强度={}, 信任={}\n",
+            name_a, name_b, rt, s, t
+        ));
     }
     text
 }
@@ -880,19 +1050,46 @@ pub fn fetch_style_guide(conn: &rusqlite::Connection) -> String {
 
 /// Fetch de-AI rules as a formatted string for voice filter / prose expert.
 pub fn fetch_de_ai_rules_summary(conn: &rusqlite::Connection) -> String {
+    let imported_value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM project_settings WHERE key = 'imported_deai_rules' ORDER BY updated_at DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(value) = imported_value {
+        let rows: Vec<(String, String, String, Option<String>, String, Option<String>)> =
+            serde_json::from_str(&value).unwrap_or_default();
+        if !rows.is_empty() {
+            let mut text = String::from("【项目已导入去AI化规则】\n");
+            for (_, category, pattern, replacement, severity, description) in rows.iter().take(20)
+            {
+                let desc = description.as_deref().unwrap_or("");
+                let repl = replacement
+                    .as_deref()
+                    .map(|value| format!(" -> {}", value))
+                    .unwrap_or_default();
+                text.push_str(&format!(
+                    "- [{}][{}] {}{}: {}\n",
+                    category, severity, pattern, repl, desc
+                ));
+            }
+            return text;
+        }
+    }
+
     let mut stmt = match conn.prepare(
-        "SELECT category, rule_name, description FROM de_ai_rules WHERE enabled = 1 ORDER BY category, rule_name LIMIT 20"
+        "SELECT category, pattern, description FROM de_ai_rules WHERE is_enabled = 1 ORDER BY category, pattern LIMIT 20"
     ) {
         Ok(s) => s,
         Err(_) => return "避免高频AI用词，打破模板化句式".to_string(),
     };
 
-    let rows: Vec<(String, String, Option<String>)> = match stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    }) {
-        Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
-        Err(_) => return "避免高频AI用词，打破模板化句式".to_string(),
-    };
+    let rows: Vec<(String, String, Option<String>)> =
+        match stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))) {
+            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
+            Err(_) => return "避免高频AI用词，打破模板化句式".to_string(),
+        };
 
     if rows.is_empty() {
         return "避免高频AI用词，打破模板化句式".to_string();
@@ -922,17 +1119,14 @@ pub fn fetch_writing_patterns(global_conn: &rusqlite::Connection, genre: Option<
 
     let rows: Vec<(String, String, Option<String>)> = if let Some(g) = genre {
         let like = format!("%{}%", g);
-        let mapped = match stmt.query_map([&like], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }) {
-            Ok(m) => m,
-            Err(_) => return String::new(),
-        };
+        let mapped =
+            match stmt.query_map([&like], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))) {
+                Ok(m) => m,
+                Err(_) => return String::new(),
+            };
         mapped.filter_map(|r| r.ok()).collect()
     } else {
-        let mapped = match stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }) {
+        let mapped = match stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))) {
             Ok(m) => m,
             Err(_) => return String::new(),
         };

@@ -35,10 +35,20 @@ pub struct ComplianceWordEntry {
 
 // ─── Built-in Dictionary ───
 
-fn builtin_words() -> Vec<(&'static str, &'static str, &'static str, Option<&'static str>)> {
+fn builtin_words() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+)> {
     vec![
         // Politics — high risk
-        ("国家领导人", "politics", "high", Some("改为'当权者'或虚构称谓")),
+        (
+            "国家领导人",
+            "politics",
+            "high",
+            Some("改为'当权者'或虚构称谓"),
+        ),
         ("政治局", "politics", "high", Some("删除或改为虚构机构名")),
         ("中南海", "politics", "high", Some("改为虚构地名")),
         ("文革", "politics", "high", Some("删除或改为'那场浩劫'")),
@@ -78,7 +88,12 @@ fn builtin_words() -> Vec<(&'static str, &'static str, &'static str, Option<&'st
         ("自慰", "sexual", "high", Some("删除")),
         ("手淫", "sexual", "high", Some("删除")),
         ("性高潮", "sexual", "high", Some("改为'巅峰'")),
-        ("呻吟", "sexual", "medium", Some("注意上下文，战斗场景可保留")),
+        (
+            "呻吟",
+            "sexual",
+            "medium",
+            Some("注意上下文，战斗场景可保留"),
+        ),
         ("呻吟着", "sexual", "high", Some("改为'痛呼着'或删除")),
         ("脱光", "sexual", "high", Some("改为'褪去衣衫'")),
         ("赤裸", "sexual", "medium", Some("改为'衣衫尽褪'")),
@@ -293,7 +308,9 @@ pub fn scan_all_chapters_compliance(
     let chapters: Vec<(i64, String)> = conn
         .prepare("SELECT chapter_number, draft_text FROM chapters ORDER BY chapter_number")
         .map_err(|e| e.to_string())?
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();

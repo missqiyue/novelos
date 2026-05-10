@@ -6,6 +6,8 @@ import type {
   ChatMessage,
   ChatResponse,
   TokenUsageSummary,
+  LlmApiCallEntry,
+  LlmStreamEventEntry,
 } from "../tauri";
 
 let memoryLlmConfig: LlmConfig | null = null;
@@ -69,6 +71,11 @@ export const llmApi = {
     memoryLlmConfig = config;
   },
 
+  async saveRuntimeConfigToDb(): Promise<void> {
+    const config = await llmApi.getConfig();
+    await llmApi.saveConfigToDb(config);
+  },
+
   async loadConfigFromDb(): Promise<LlmConfig | null> {
     await webDb.initGlobal();
     const row = webDb.get<{ value: string }>(
@@ -86,5 +93,38 @@ export const llmApi = {
       total_calls: 0, total_prompt_tokens: 0, total_completion_tokens: 0,
       total_tokens: 0, total_cost_estimate_usd: 0, by_agent: [], by_model: [],
     };
+  },
+
+  async listApiCalls(agentName?: string, limit?: number): Promise<LlmApiCallEntry[]> {
+    const lmt = limit ?? 100;
+    if (agentName) {
+      return webDb.all<LlmApiCallEntry>(
+        `SELECT id, request_id, agent_name, provider, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, error_message, created_at
+         FROM llm_api_calls
+         WHERE agent_name = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+        [agentName, lmt],
+      );
+    }
+    return webDb.all<LlmApiCallEntry>(
+      `SELECT id, request_id, agent_name, provider, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, error_message, created_at
+       FROM llm_api_calls
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [lmt],
+    );
+  },
+
+  async listStreamEvents(requestId: string, limit?: number): Promise<LlmStreamEventEntry[]> {
+    const lmt = limit ?? 200;
+    return webDb.all<LlmStreamEventEntry>(
+      `SELECT id, request_id, project_id, agent_name, provider, model, kind, delta, reasoning_delta, done, created_at
+       FROM llm_stream_events
+       WHERE request_id = ?
+       ORDER BY created_at ASC
+       LIMIT ?`,
+      [requestId, lmt],
+    );
   },
 };

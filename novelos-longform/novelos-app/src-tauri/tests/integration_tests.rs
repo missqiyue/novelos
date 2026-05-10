@@ -4,7 +4,8 @@ mod integration_tests {
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY, title TEXT, genre_id TEXT, logline TEXT,
                 target_words INTEGER, target_volumes INTEGER,
@@ -48,7 +49,9 @@ mod integration_tests {
                 related_entity_type TEXT, related_entity_id TEXT,
                 is_read INTEGER DEFAULT 0, created_at TEXT
             );
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         conn
     }
 
@@ -61,12 +64,16 @@ mod integration_tests {
             [now, now],
         ).unwrap();
 
-        let title: String = conn.query_row(
-            "SELECT title FROM projects WHERE id = 'p1'", [], |r| r.get(0)
-        ).unwrap();
+        let title: String = conn
+            .query_row("SELECT title FROM projects WHERE id = 'p1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(title, "测试作品");
 
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -102,9 +109,13 @@ mod integration_tests {
             [now],
         ).unwrap();
 
-        let version_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM chapter_versions WHERE chapter_id = 'c1'", [], |r| r.get(0)
-        ).unwrap();
+        let version_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chapter_versions WHERE chapter_id = 'c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(version_count, 1);
     }
 
@@ -123,12 +134,20 @@ mod integration_tests {
             [now, now],
         ).unwrap();
 
-        let hard_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM canon_rules WHERE is_hard = 1 AND status = 'active'", [], |r| r.get(0)
-        ).unwrap();
-        let soft_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM canon_rules WHERE is_hard = 0 AND status = 'active'", [], |r| r.get(0)
-        ).unwrap();
+        let hard_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM canon_rules WHERE is_hard = 1 AND status = 'active'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let soft_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM canon_rules WHERE is_hard = 0 AND status = 'active'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
 
         assert_eq!(hard_count, 1);
         assert_eq!(soft_count, 1);
@@ -146,16 +165,34 @@ mod integration_tests {
         ).unwrap();
 
         // Verify planted
-        let status: String = conn.query_row("SELECT status FROM foreshadow_items WHERE id = 'f1'", [], |r| r.get(0)).unwrap();
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM foreshadow_items WHERE id = 'f1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(status, "planted");
 
         // Resolve
         conn.execute("UPDATE foreshadow_items SET status = 'resolved', resolved_chapter = 15 WHERE id = 'f1'", []).unwrap();
-        let status: String = conn.query_row("SELECT status FROM foreshadow_items WHERE id = 'f1'", [], |r| r.get(0)).unwrap();
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM foreshadow_items WHERE id = 'f1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(status, "resolved");
 
         // Check resolved_chapter
-        let resolved_ch: Option<i64> = conn.query_row("SELECT resolved_chapter FROM foreshadow_items WHERE id = 'f1'", [], |r| r.get(0)).unwrap();
+        let resolved_ch: Option<i64> = conn
+            .query_row(
+                "SELECT resolved_chapter FROM foreshadow_items WHERE id = 'f1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(resolved_ch, Some(15));
     }
 
@@ -171,12 +208,25 @@ mod integration_tests {
         ).unwrap();
 
         // Verify unread
-        let unread: i64 = conn.query_row("SELECT COUNT(*) FROM notifications WHERE is_read = 0", [], |r| r.get(0)).unwrap();
+        let unread: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(unread, 1);
 
         // Mark read
-        conn.execute("UPDATE notifications SET is_read = 1 WHERE id = 'n1'", []).unwrap();
-        let unread: i64 = conn.query_row("SELECT COUNT(*) FROM notifications WHERE is_read = 0", [], |r| r.get(0)).unwrap();
+        conn.execute("UPDATE notifications SET is_read = 1 WHERE id = 'n1'", [])
+            .unwrap();
+        let unread: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM notifications WHERE is_read = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(unread, 0);
     }
 
@@ -194,7 +244,13 @@ mod integration_tests {
         ).unwrap();
 
         // Query and parse SOUL
-        let soul_json: String = conn.query_row("SELECT soul_json FROM characters WHERE id = 'ch1'", [], |r| r.get(0)).unwrap();
+        let soul_json: String = conn
+            .query_row(
+                "SELECT soul_json FROM characters WHERE id = 'ch1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&soul_json).unwrap();
 
         assert_eq!(parsed["matched_template"], "热血少年");
@@ -217,17 +273,29 @@ mod integration_tests {
             ).unwrap();
         }
 
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM chapters", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chapters", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 100);
 
         // Query range
-        let range_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM chapters WHERE chapter_number BETWEEN 10 AND 20", [], |r| r.get(0)
-        ).unwrap();
+        let range_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chapters WHERE chapter_number BETWEEN 10 AND 20",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(range_count, 11);
 
         // Total words
-        let total_words: i64 = conn.query_row("SELECT COALESCE(SUM(word_count), 0) FROM chapters", [], |r| r.get(0)).unwrap();
+        let total_words: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(word_count), 0) FROM chapters",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         // Sum of 1*1000 + 2*1000 + ... + 100*1000 = 1000 * 100*101/2 = 5,050,000
         assert_eq!(total_words, 5_050_000);
     }

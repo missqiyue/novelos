@@ -11,8 +11,15 @@ struct AnthropicRequest {
     temperature: f32,
     system: Option<String>,
     messages: Vec<AnthropicMessage>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<AnthropicThinkingConfig>,
     stream: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct AnthropicThinkingConfig {
+    #[serde(rename = "type")]
+    mode: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -39,7 +46,12 @@ struct AnthropicResponse {
 struct AnthropicResponseContent {
     #[serde(rename = "type")]
     content_type: String,
-    text: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    thinking: Option<String>,
+    #[serde(default)]
+    signature: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +73,7 @@ struct AnthropicStreamDelta {
     #[serde(default, rename = "type")]
     delta_type: Option<String>,
     text: Option<String>,
+    thinking: Option<String>,
     stop_reason: Option<String>,
 }
 
@@ -82,6 +95,58 @@ impl AnthropicProvider {
             client: crate::llm::shared_client(),
         }
     }
+
+    fn uses_deepseek_anthropic(&self) -> bool {
+        let model = self.config.model.trim().to_lowercase();
+        let base_url = self
+            .config
+            .base_url
+            .trim()
+            .trim_end_matches('/')
+            .to_lowercase();
+        model.starts_with("deepseek") && base_url.contains("api.deepseek.com/anthropic")
+    }
+}
+
+fn summarize_body(text: &str) -> String {
+    let compact = text.replace('\n', " ").replace('\r', " ");
+    if compact.len() <= 200 {
+        compact
+    } else {
+        let preview: String = compact.chars().take(200).collect();
+        format!("{}...", preview)
+    }
+}
+
+fn extract_anthropic_content(data: &AnthropicResponse) -> (String, String) {
+    let mut content = Vec::new();
+    let mut reasoning = Vec::new();
+
+    for block in &data.content {
+        match block.content_type.as_str() {
+            "text" => {
+                if let Some(text) = &block.text {
+                    content.push(text.clone());
+                }
+            }
+            "thinking" => {
+                if let Some(text) = &block.thinking {
+                    reasoning.push(text.clone());
+                } else if let Some(text) = &block.text {
+                    reasoning.push(text.clone());
+                }
+            }
+            _ => {
+                if let Some(text) = &block.text {
+                    content.push(text.clone());
+                } else if let Some(text) = &block.thinking {
+                    reasoning.push(text.clone());
+                }
+            }
+        }
+    }
+
+    (content.join("\n"), reasoning.join("\n"))
 }
 
 impl LlmProvider for AnthropicProvider {
@@ -89,14 +154,26 @@ impl LlmProvider for AnthropicProvider {
         &self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
-        let system_msg = messages.iter().find(|m| m.role == "system").map(|m| m.content.clone());
+        let system_msg = messages
+            .iter()
+            .find(|m| m.role == "system")
+            .map(|m| m.content.clone());
         let chat_messages: Vec<AnthropicMessage> = messages
             .iter()
             .filter(|m| m.role != "system")
             .map(|m| AnthropicMessage {
-                role: if m.role == "assistant" { "assistant".to_string() } else { "user".to_string() },
+                role: if m.role == "assistant" {
+                    "assistant".to_string()
+                } else {
+                    "user".to_string()
+                },
                 content: vec![AnthropicContent {
                     content_type: "text".to_string(),
                     text: m.content.clone(),
@@ -110,6 +187,7 @@ impl LlmProvider for AnthropicProvider {
             temperature: self.config.temperature,
             system: system_msg,
             messages: chat_messages,
+            thinking: None,
             stream: false,
         };
 
@@ -148,19 +226,31 @@ impl LlmProvider for AnthropicProvider {
                         return Err(format!("Anthropic API error {}: {}", status.as_u16(), text));
                     }
 
-                    resp.json::<AnthropicResponse>().await
-                        .map_err(|e| format!("JSON parse error: {}", e))
+                    let text = resp.text().await.unwrap_or_default();
+                    if text.trim().is_empty() {
+                        return Err(format!(
+                            "Anthropic API returned empty body (HTTP {}). This may indicate a timeout, content filter, or DeepSeek compatibility issue with max_tokens={}.",
+                            status.as_u16(),
+                            body.max_tokens,
+                        ));
+                    }
+                    serde_json::from_str::<AnthropicResponse>(&text).map_err(|e| {
+                        let snippet = summarize_body(&text);
+                        let hint = if text.contains("\"choices\"") || text.contains("\"object\"") {
+                            "；返回体看起来更像 OpenAI 兼容格式，请将 Provider 改为 `openai`"
+                        } else {
+                            ""
+                        };
+                        format!("JSON parse error: {}；response snippet: {}{}", e, snippet, hint)
+                    })
                 }
             }).await.map_err(|e| <Box<dyn std::error::Error + Send + Sync>>::from(e))?;
 
-            let content = data.content.iter()
-                .filter(|c| c.content_type == "text")
-                .map(|c| c.text.clone())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let (content, reasoning_content) = extract_anthropic_content(&data);
 
             Ok(ChatResponse {
                 content,
+                reasoning_content,
                 prompt_tokens: data.usage.input_tokens,
                 completion_tokens: data.usage.output_tokens,
                 total_tokens: data.usage.input_tokens + data.usage.output_tokens,
@@ -173,7 +263,11 @@ impl LlmProvider for AnthropicProvider {
         self,
         messages: Vec<ChatMessage>,
     ) -> std::pin::Pin<
-        Box<dyn tokio_stream::Stream<Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>> + Send>,
+        Box<
+            dyn tokio_stream::Stream<
+                    Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send,
+        >,
     >
     where
         Self: Sized + Send + 'static,
@@ -200,6 +294,7 @@ impl LlmProvider for AnthropicProvider {
                 temperature: config.temperature,
                 system: system_msg,
                 messages: chat_messages,
+                thinking: None,
                 stream: true,
             };
 
@@ -258,9 +353,20 @@ impl LlmProvider for AnthropicProvider {
                         "content_block_delta" => {
                             if let Some(delta) = event.delta {
                                 let text = delta.text.unwrap_or_default();
+                                let reasoning_delta = delta.thinking.unwrap_or_default();
                                 if !text.is_empty() {
                                     yield Ok(StreamChunk {
                                         delta: text,
+                                        reasoning_delta: String::new(),
+                                        done: false,
+                                        prompt_tokens: 0,
+                                        completion_tokens: 0,
+                                        model: model.clone(),
+                                    });
+                                } else if !reasoning_delta.is_empty() {
+                                    yield Ok(StreamChunk {
+                                        delta: String::new(),
+                                        reasoning_delta,
                                         done: false,
                                         prompt_tokens: 0,
                                         completion_tokens: 0,
@@ -274,6 +380,7 @@ impl LlmProvider for AnthropicProvider {
                                 if delta.stop_reason.as_deref() == Some("end_turn") {
                                     yield Ok(StreamChunk {
                                         delta: String::new(),
+                                        reasoning_delta: String::new(),
                                         done: true,
                                         prompt_tokens: 0,
                                         completion_tokens: 0,
@@ -286,6 +393,7 @@ impl LlmProvider for AnthropicProvider {
                         "message_stop" => {
                             yield Ok(StreamChunk {
                                 delta: String::new(),
+                                reasoning_delta: String::new(),
                                 done: true,
                                 prompt_tokens: 0,
                                 completion_tokens: 0,
@@ -306,10 +414,13 @@ impl LlmProvider for AnthropicProvider {
         _text: &str,
         _model: &str,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
-        Box::pin(async move {
-            Err("Anthropic does not support embeddings".into())
-        })
+        Box::pin(async move { Err("Anthropic does not support embeddings".into()) })
     }
 }

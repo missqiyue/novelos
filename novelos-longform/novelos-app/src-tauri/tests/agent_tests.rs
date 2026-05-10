@@ -79,15 +79,51 @@ mod agent_tests {
     #[test]
     fn test_review_agents_exist() {
         let agents_list = [
-            ("plot_expert", &agents::plot_expert::SYSTEM, &agents::plot_expert::USER_TEMPLATE),
-            ("character_expert", &agents::character_expert::SYSTEM, &agents::character_expert::USER_TEMPLATE),
-            ("pacing_expert", &agents::pacing_expert::SYSTEM, &agents::pacing_expert::USER_TEMPLATE),
-            ("worldbuilding_expert", &agents::worldbuilding_expert::SYSTEM, &agents::worldbuilding_expert::USER_TEMPLATE),
-            ("prose_expert", &agents::prose_expert::SYSTEM, &agents::prose_expert::USER_TEMPLATE),
-            ("commercial_expert", &agents::commercial_expert::SYSTEM, &agents::commercial_expert::USER_TEMPLATE),
-            ("reader_panel", &agents::reader_panel::SYSTEM, &agents::reader_panel::USER_TEMPLATE),
-            ("voice_audit", &agents::voice_audit::SYSTEM, &agents::voice_audit::USER_TEMPLATE),
-            ("review_chair", &agents::review_chair::SYSTEM, &agents::review_chair::USER_TEMPLATE),
+            (
+                "plot_expert",
+                &agents::plot_expert::SYSTEM,
+                &agents::plot_expert::USER_TEMPLATE,
+            ),
+            (
+                "character_expert",
+                &agents::character_expert::SYSTEM,
+                &agents::character_expert::USER_TEMPLATE,
+            ),
+            (
+                "pacing_expert",
+                &agents::pacing_expert::SYSTEM,
+                &agents::pacing_expert::USER_TEMPLATE,
+            ),
+            (
+                "worldbuilding_expert",
+                &agents::worldbuilding_expert::SYSTEM,
+                &agents::worldbuilding_expert::USER_TEMPLATE,
+            ),
+            (
+                "prose_expert",
+                &agents::prose_expert::SYSTEM,
+                &agents::prose_expert::USER_TEMPLATE,
+            ),
+            (
+                "commercial_expert",
+                &agents::commercial_expert::SYSTEM,
+                &agents::commercial_expert::USER_TEMPLATE,
+            ),
+            (
+                "reader_panel",
+                &agents::reader_panel::SYSTEM,
+                &agents::reader_panel::USER_TEMPLATE,
+            ),
+            (
+                "voice_audit",
+                &agents::voice_audit::SYSTEM,
+                &agents::voice_audit::USER_TEMPLATE,
+            ),
+            (
+                "review_chair",
+                &agents::review_chair::SYSTEM,
+                &agents::review_chair::USER_TEMPLATE,
+            ),
         ];
         for (name, sys, user) in &agents_list {
             assert!(!sys.is_empty(), "{} SYSTEM is empty", name);

@@ -1,10 +1,14 @@
-use super::{CompileContext, CompileIssue, CompilePass, find_paragraph_index};
+use super::{find_paragraph_index, CompileContext, CompileIssue, CompilePass};
 
 pub struct PowerChecker;
 
 impl CompilePass for PowerChecker {
-    fn name(&self) -> &'static str { "PowerChecker" }
-    fn description(&self) -> &'static str { "检查战力异常跳变" }
+    fn name(&self) -> &'static str {
+        "PowerChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查战力异常跳变"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
@@ -21,7 +25,11 @@ impl CompilePass for PowerChecker {
             ("轻松碾压.*境", "战力差距可能不合理", "any"),
         ];
 
-        let paragraphs: Vec<&str> = ctx.draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = ctx
+            .draft_text
+            .split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .collect();
 
         for (pattern, issue_desc, context_req) in power_jump_patterns {
             if let Ok(re) = regex::Regex::new(pattern) {

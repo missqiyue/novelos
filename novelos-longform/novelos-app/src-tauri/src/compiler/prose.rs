@@ -1,16 +1,24 @@
-use super::{CompileContext, CompileIssue, CompilePass, find_paragraph_index};
+use super::{CompileContext, CompileIssue, CompilePass};
 
 pub struct ProseChecker;
 
 impl CompilePass for ProseChecker {
-    fn name(&self) -> &'static str { "ProseChecker" }
-    fn description(&self) -> &'static str { "检查文本质感和段落结构" }
+    fn name(&self) -> &'static str {
+        "ProseChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查文本质感和段落结构"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
 
         let word_count = ctx.draft_text.chars().count();
-        let paragraphs: Vec<&str> = ctx.draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = ctx
+            .draft_text
+            .split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .collect();
         let paragraph_count = paragraphs.len();
         let dialogue_markers = count_dialogue_markers(ctx.draft_text);
 
@@ -47,7 +55,10 @@ impl CompilePass for ProseChecker {
                     checker: self.name().to_string(),
                     severity: "info".to_string(),
                     message: format!("对话占比过高 ({:.0}%)", dialogue_ratio * 100.0),
-                    detail: Some("纯对话章节缺少环境描写和心理活动，建议增加叙述性内容以丰富阅读层次。".to_string()),
+                    detail: Some(
+                        "纯对话章节缺少环境描写和心理活动，建议增加叙述性内容以丰富阅读层次。"
+                            .to_string(),
+                    ),
                     location: None,
                     paragraph_index: None,
                 });
@@ -56,7 +67,9 @@ impl CompilePass for ProseChecker {
                     checker: self.name().to_string(),
                     severity: "info".to_string(),
                     message: format!("对话占比过低 ({:.0}%)", dialogue_ratio * 100.0),
-                    detail: Some("大段纯叙述容易让读者疲劳，建议穿插对话以增加节奏变化。".to_string()),
+                    detail: Some(
+                        "大段纯叙述容易让读者疲劳，建议穿插对话以增加节奏变化。".to_string(),
+                    ),
                     location: None,
                     paragraph_index: None,
                 });
@@ -71,7 +84,10 @@ impl CompilePass for ProseChecker {
         if paragraph_count >= 4 {
             let para_lengths: Vec<usize> = paragraphs.iter().map(|p| p.chars().count()).collect();
             let avg_len = para_lengths.iter().sum::<usize>() as f32 / para_lengths.len() as f32;
-            let very_long = para_lengths.iter().filter(|&&l| l as f32 > avg_len * 3.0).count();
+            let very_long = para_lengths
+                .iter()
+                .filter(|&&l| l as f32 > avg_len * 3.0)
+                .count();
             let very_short = para_lengths.iter().filter(|&&l| l < 20).count();
 
             if very_long > 0 {
@@ -108,7 +124,8 @@ fn count_dialogue_markers(text: &str) -> usize {
     (text.matches('"').count()
         + text.matches('"').count()
         + text.matches('「').count()
-        + text.matches('」').count()) / 2
+        + text.matches('」').count())
+        / 2
 }
 
 /// Estimate the character count of dialogue text.
@@ -141,35 +158,48 @@ fn estimate_dialogue_chars(text: &str) -> usize {
 
 /// Detect repetitive sentence-opening patterns.
 fn detect_repetitive_patterns(text: &str) -> Vec<CompileIssue> {
+    use std::collections::HashMap;
+
     let mut issues = Vec::new();
-    let paragraphs: Vec<&str> = text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    let paragraphs: Vec<&str> = text
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
 
     // Check for repeated paragraph openings
-    let openings: Vec<&str> = paragraphs.iter()
+    let openings: Vec<String> = paragraphs
+        .iter()
         .map(|p| {
-            let first_sentence = p.split(|c: char| c == '。' || c == '！' || c == '？').next().unwrap_or("");
-            let chars: Vec<char> = first_sentence.chars().collect();
-            if chars.len() >= 4 {
-                &first_sentence[..chars[4].len_utf8() + first_sentence[..chars[4].len_utf8()].len()]
+            let first_sentence = p
+                .split(|c: char| c == '。' || c == '！' || c == '？')
+                .next()
+                .unwrap_or("");
+            let first_sentence = first_sentence.trim();
+            let opening: String = first_sentence.chars().take(4).collect();
+            if opening.is_empty() {
+                p.trim().chars().take(4).collect()
             } else {
-                *p
+                opening
             }
         })
         .collect();
 
     // Count opening repetitions
-    use std::collections::HashMap;
-    let mut opening_counts: HashMap<&str, usize> = HashMap::new();
+    let mut opening_counts: HashMap<String, usize> = HashMap::new();
     for opening in &openings {
-        *opening_counts.entry(opening).or_insert(0) += 1;
+        *opening_counts.entry(opening.clone()).or_insert(0) += 1;
     }
 
     for (opening, count) in &opening_counts {
-        if *count >= 3 && opening.len() >= 4 {
+        if *count >= 3 && opening.chars().count() >= 4 {
             issues.push(CompileIssue {
                 checker: "ProseChecker".to_string(),
                 severity: "info".to_string(),
-                message: format!("段落开头重复（\"{}\" 出现{}次）", truncate_str(opening, 10), count),
+                message: format!(
+                    "段落开头重复（\"{}\" 出现{}次）",
+                    truncate_str(opening, 10),
+                    count
+                ),
                 detail: Some("重复的段落开头会让文章节奏单调，建议变换句式。".to_string()),
                 location: None,
                 paragraph_index: None,
@@ -178,17 +208,18 @@ fn detect_repetitive_patterns(text: &str) -> Vec<CompileIssue> {
     }
 
     // Check for repeated sentence-endings within the text
-    let sentences: Vec<&str> = text.split(|c: char| c == '。' || c == '！' || c == '？')
+    let sentences: Vec<&str> = text
+        .split(|c: char| c == '。' || c == '！' || c == '？')
         .map(|s| s.trim())
-        .filter(|s| s.len() >= 6)
+        .filter(|s| s.chars().count() >= 6)
         .collect();
 
-    let mut ending_counts: HashMap<&str, usize> = HashMap::new();
+    let mut ending_counts: HashMap<String, usize> = HashMap::new();
     for sentence in &sentences {
         let chars: Vec<char> = sentence.chars().collect();
         if chars.len() >= 4 {
-            let ending: String = chars[chars.len()-4..].iter().collect();
-            *ending_counts.entry(Box::leak(ending.into_boxed_str())).or_insert(0) += 1;
+            let ending: String = chars[chars.len() - 4..].iter().collect();
+            *ending_counts.entry(ending).or_insert(0) += 1;
         }
     }
 

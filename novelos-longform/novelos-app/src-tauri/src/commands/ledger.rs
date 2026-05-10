@@ -23,7 +23,10 @@ pub struct CharacterStateInfo {
 }
 
 #[tauri::command]
-pub fn list_character_states(db: State<'_, DbState>, character_id: Option<String>) -> Result<Vec<CharacterStateInfo>, String> {
+pub fn list_character_states(
+    db: State<'_, DbState>,
+    character_id: Option<String>,
+) -> Result<Vec<CharacterStateInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -36,11 +39,20 @@ pub fn list_character_states(db: State<'_, DbState>, character_id: Option<String
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<CharacterStateInfo> {
         Ok(CharacterStateInfo {
-            id: row.get(0)?, character_id: row.get(1)?, snapshot_id: row.get(2)?,
-            chapter_from: row.get(3)?, chapter_to: row.get(4)?, level_state: row.get(5)?,
-            physical_state: row.get(6)?, emotion_state: row.get(7)?, goal_state: row.get(8)?,
-            location_id: row.get(9)?, resource_state: row.get(10)?, known_info: row.get(11)?,
-            secret_info: row.get(12)?, created_at: row.get(13)?,
+            id: row.get(0)?,
+            character_id: row.get(1)?,
+            snapshot_id: row.get(2)?,
+            chapter_from: row.get(3)?,
+            chapter_to: row.get(4)?,
+            level_state: row.get(5)?,
+            physical_state: row.get(6)?,
+            emotion_state: row.get(7)?,
+            goal_state: row.get(8)?,
+            location_id: row.get(9)?,
+            resource_state: row.get(10)?,
+            known_info: row.get(11)?,
+            secret_info: row.get(12)?,
+            created_at: row.get(13)?,
         })
     };
 
@@ -48,12 +60,18 @@ pub fn list_character_states(db: State<'_, DbState>, character_id: Option<String
         stmt.query_map([cid], map_row)
     } else {
         stmt.query_map([], map_row)
-    }.map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn upsert_character_state(db: State<'_, DbState>, input: UpsertCharacterStateInput) -> Result<CharacterStateInfo, String> {
+pub fn upsert_character_state(
+    db: State<'_, DbState>,
+    input: UpsertCharacterStateInput,
+) -> Result<CharacterStateInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -65,7 +83,8 @@ pub fn upsert_character_state(db: State<'_, DbState>, input: UpsertCharacterStat
             "SELECT id FROM character_states WHERE character_id = ?1 AND chapter_from = ?2",
             rusqlite::params![input.character_id, input.chapter_from],
             |r| r.get(0),
-        ).ok();
+        )
+        .ok();
 
     if let Some(id) = existing {
         conn.execute(
@@ -98,7 +117,10 @@ pub struct UpsertCharacterStateInput {
     pub secret_info: Option<String>,
 }
 
-fn get_character_state_inner(conn: &rusqlite::Connection, id: &str) -> Result<CharacterStateInfo, String> {
+fn get_character_state_inner(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<CharacterStateInfo, String> {
     conn.query_row("SELECT id, character_id, snapshot_id, chapter_from, chapter_to, level_state, physical_state, emotion_state, goal_state, location_id, resource_state, known_info, secret_info, created_at FROM character_states WHERE id = ?1", [id], |row| {
         Ok(CharacterStateInfo {
             id: row.get(0)?, character_id: row.get(1)?, snapshot_id: row.get(2)?,
@@ -114,7 +136,8 @@ fn get_character_state_inner(conn: &rusqlite::Connection, id: &str) -> Result<Ch
 pub fn delete_character_state(db: State<'_, DbState>, id: String) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
-    conn.execute("DELETE FROM character_states WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM character_states WHERE id = ?1", [&id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -136,7 +159,10 @@ pub struct RelationshipStateInfo {
 }
 
 #[tauri::command]
-pub fn list_relationship_states(db: State<'_, DbState>, character_id: Option<String>) -> Result<Vec<RelationshipStateInfo>, String> {
+pub fn list_relationship_states(
+    db: State<'_, DbState>,
+    character_id: Option<String>,
+) -> Result<Vec<RelationshipStateInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -149,10 +175,17 @@ pub fn list_relationship_states(db: State<'_, DbState>, character_id: Option<Str
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<RelationshipStateInfo> {
         Ok(RelationshipStateInfo {
-            id: row.get(0)?, source_character_id: row.get(1)?, target_character_id: row.get(2)?,
-            relation_type: row.get(3)?, strength: row.get(4)?, trust_score: row.get(5)?,
-            conflict_score: row.get(6)?, chapter_from: row.get(7)?, chapter_to: row.get(8)?,
-            trigger_event_id: row.get(9)?, notes: row.get(10)?,
+            id: row.get(0)?,
+            source_character_id: row.get(1)?,
+            target_character_id: row.get(2)?,
+            relation_type: row.get(3)?,
+            strength: row.get(4)?,
+            trust_score: row.get(5)?,
+            conflict_score: row.get(6)?,
+            chapter_from: row.get(7)?,
+            chapter_to: row.get(8)?,
+            trigger_event_id: row.get(9)?,
+            notes: row.get(10)?,
         })
     };
 
@@ -160,12 +193,18 @@ pub fn list_relationship_states(db: State<'_, DbState>, character_id: Option<Str
         stmt.query_map([cid], map_row)
     } else {
         stmt.query_map([], map_row)
-    }.map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn upsert_relationship_state(db: State<'_, DbState>, input: UpsertRelationshipInput) -> Result<RelationshipStateInfo, String> {
+pub fn upsert_relationship_state(
+    db: State<'_, DbState>,
+    input: UpsertRelationshipInput,
+) -> Result<RelationshipStateInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -207,7 +246,10 @@ pub struct UpsertRelationshipInput {
     pub notes: Option<String>,
 }
 
-fn get_relationship_inner(conn: &rusqlite::Connection, id: &str) -> Result<RelationshipStateInfo, String> {
+fn get_relationship_inner(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<RelationshipStateInfo, String> {
     conn.query_row("SELECT id, source_character_id, target_character_id, relation_type, strength, trust_score, conflict_score, chapter_from, chapter_to, trigger_event_id, notes FROM relationship_states WHERE id = ?1", [id], |row| {
         Ok(RelationshipStateInfo {
             id: row.get(0)?, source_character_id: row.get(1)?, target_character_id: row.get(2)?,
@@ -233,7 +275,10 @@ pub struct TimelineNodeInfo {
 }
 
 #[tauri::command]
-pub fn list_timeline_nodes(db: State<'_, DbState>, chapter_number: Option<i64>) -> Result<Vec<TimelineNodeInfo>, String> {
+pub fn list_timeline_nodes(
+    db: State<'_, DbState>,
+    chapter_number: Option<i64>,
+) -> Result<Vec<TimelineNodeInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -246,9 +291,14 @@ pub fn list_timeline_nodes(db: State<'_, DbState>, chapter_number: Option<i64>) 
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<TimelineNodeInfo> {
         Ok(TimelineNodeInfo {
-            id: row.get(0)?, chapter_number: row.get(1)?, world_date: row.get(2)?,
-            relative_day: row.get(3)?, location_id: row.get(4)?, summary: row.get(5)?,
-            participants: row.get(6)?, dependencies: row.get(7)?,
+            id: row.get(0)?,
+            chapter_number: row.get(1)?,
+            world_date: row.get(2)?,
+            relative_day: row.get(3)?,
+            location_id: row.get(4)?,
+            summary: row.get(5)?,
+            participants: row.get(6)?,
+            dependencies: row.get(7)?,
         })
     };
 
@@ -256,18 +306,28 @@ pub fn list_timeline_nodes(db: State<'_, DbState>, chapter_number: Option<i64>) 
         stmt.query_map([cn], map_row)
     } else {
         stmt.query_map([], map_row)
-    }.map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn upsert_timeline_node(db: State<'_, DbState>, input: UpsertTimelineInput) -> Result<TimelineNodeInfo, String> {
+pub fn upsert_timeline_node(
+    db: State<'_, DbState>,
+    input: UpsertTimelineInput,
+) -> Result<TimelineNodeInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
 
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let existing: Option<String> = conn.query_row("SELECT id FROM timeline_nodes WHERE id = ?1", [&id], |r| r.get(0)).ok();
+    let existing: Option<String> = conn
+        .query_row("SELECT id FROM timeline_nodes WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
+        .ok();
 
     if existing.is_some() {
         conn.execute(
@@ -295,7 +355,10 @@ pub struct UpsertTimelineInput {
     pub dependencies: Option<String>,
 }
 
-fn get_timeline_node_inner(conn: &rusqlite::Connection, id: &str) -> Result<TimelineNodeInfo, String> {
+fn get_timeline_node_inner(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<TimelineNodeInfo, String> {
     conn.query_row("SELECT id, chapter_number, world_date, relative_day, location_id, summary, participants, dependencies FROM timeline_nodes WHERE id = ?1", [id], |row| {
         Ok(TimelineNodeInfo {
             id: row.get(0)?, chapter_number: row.get(1)?, world_date: row.get(2)?,
@@ -322,7 +385,10 @@ pub struct ForeshadowItemInfo {
 }
 
 #[tauri::command]
-pub fn list_foreshadow_items(db: State<'_, DbState>, status: Option<String>) -> Result<Vec<ForeshadowItemInfo>, String> {
+pub fn list_foreshadow_items(
+    db: State<'_, DbState>,
+    status: Option<String>,
+) -> Result<Vec<ForeshadowItemInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -335,9 +401,15 @@ pub fn list_foreshadow_items(db: State<'_, DbState>, status: Option<String>) -> 
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<ForeshadowItemInfo> {
         Ok(ForeshadowItemInfo {
-            id: row.get(0)?, seed_chapter: row.get(1)?, expected_volume_id: row.get(2)?,
-            title: row.get(3)?, maturity_condition: row.get(4)?, payoff_type: row.get(5)?,
-            status: row.get(6)?, resolved_chapter: row.get(7)?, importance: row.get(8)?,
+            id: row.get(0)?,
+            seed_chapter: row.get(1)?,
+            expected_volume_id: row.get(2)?,
+            title: row.get(3)?,
+            maturity_condition: row.get(4)?,
+            payoff_type: row.get(5)?,
+            status: row.get(6)?,
+            resolved_chapter: row.get(7)?,
+            importance: row.get(8)?,
             notes: row.get(9)?,
         })
     };
@@ -346,18 +418,30 @@ pub fn list_foreshadow_items(db: State<'_, DbState>, status: Option<String>) -> 
         stmt.query_map([st], map_row)
     } else {
         stmt.query_map([], map_row)
-    }.map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn upsert_foreshadow_item(db: State<'_, DbState>, input: UpsertForeshadowInput) -> Result<ForeshadowItemInfo, String> {
+pub fn upsert_foreshadow_item(
+    db: State<'_, DbState>,
+    input: UpsertForeshadowInput,
+) -> Result<ForeshadowItemInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
 
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let existing: Option<String> = conn.query_row("SELECT id FROM foreshadow_items WHERE id = ?1", [&id], |r| r.get(0)).ok();
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT id FROM foreshadow_items WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .ok();
 
     if existing.is_some() {
         conn.execute(
@@ -387,7 +471,10 @@ pub struct UpsertForeshadowInput {
     pub notes: Option<String>,
 }
 
-fn get_foreshadow_inner(conn: &rusqlite::Connection, id: &str) -> Result<ForeshadowItemInfo, String> {
+fn get_foreshadow_inner(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<ForeshadowItemInfo, String> {
     conn.query_row("SELECT id, seed_chapter, expected_volume_id, title, maturity_condition, payoff_type, status, resolved_chapter, importance, notes FROM foreshadow_items WHERE id = ?1", [id], |row| {
         Ok(ForeshadowItemInfo {
             id: row.get(0)?, seed_chapter: row.get(1)?, expected_volume_id: row.get(2)?,
@@ -414,7 +501,10 @@ pub struct AbilityItemInfo {
 }
 
 #[tauri::command]
-pub fn list_ability_items(db: State<'_, DbState>, owner_id: Option<String>) -> Result<Vec<AbilityItemInfo>, String> {
+pub fn list_ability_items(
+    db: State<'_, DbState>,
+    owner_id: Option<String>,
+) -> Result<Vec<AbilityItemInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -427,9 +517,14 @@ pub fn list_ability_items(db: State<'_, DbState>, owner_id: Option<String>) -> R
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<AbilityItemInfo> {
         Ok(AbilityItemInfo {
-            id: row.get(0)?, item_type: row.get(1)?, name: row.get(2)?,
-            owner_character_id: row.get(3)?, source_rule_id: row.get(4)?,
-            cost_rule: row.get(5)?, cooldown_rule: row.get(6)?, limit_rule: row.get(7)?,
+            id: row.get(0)?,
+            item_type: row.get(1)?,
+            name: row.get(2)?,
+            owner_character_id: row.get(3)?,
+            source_rule_id: row.get(4)?,
+            cost_rule: row.get(5)?,
+            cooldown_rule: row.get(6)?,
+            limit_rule: row.get(7)?,
             status: row.get(8)?,
         })
     };
@@ -438,18 +533,28 @@ pub fn list_ability_items(db: State<'_, DbState>, owner_id: Option<String>) -> R
         stmt.query_map([oid], map_row)
     } else {
         stmt.query_map([], map_row)
-    }.map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn upsert_ability_item(db: State<'_, DbState>, input: UpsertAbilityInput) -> Result<AbilityItemInfo, String> {
+pub fn upsert_ability_item(
+    db: State<'_, DbState>,
+    input: UpsertAbilityInput,
+) -> Result<AbilityItemInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
 
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let existing: Option<String> = conn.query_row("SELECT id FROM ability_items WHERE id = ?1", [&id], |r| r.get(0)).ok();
+    let existing: Option<String> = conn
+        .query_row("SELECT id FROM ability_items WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
+        .ok();
 
     if existing.is_some() {
         conn.execute(
@@ -503,7 +608,10 @@ pub struct KnowledgeVisibilityInfo {
 }
 
 #[tauri::command]
-pub fn list_knowledge_visibility(db: State<'_, DbState>, holder_ref: Option<String>) -> Result<Vec<KnowledgeVisibilityInfo>, String> {
+pub fn list_knowledge_visibility(
+    db: State<'_, DbState>,
+    holder_ref: Option<String>,
+) -> Result<Vec<KnowledgeVisibilityInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -516,9 +624,13 @@ pub fn list_knowledge_visibility(db: State<'_, DbState>, holder_ref: Option<Stri
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<KnowledgeVisibilityInfo> {
         Ok(KnowledgeVisibilityInfo {
-            id: row.get(0)?, knowledge_key: row.get(1)?, holder_type: row.get(2)?,
-            holder_ref: row.get(3)?, visibility_state: row.get(4)?,
-            chapter_acquired: row.get(5)?, source_event_id: row.get(6)?,
+            id: row.get(0)?,
+            knowledge_key: row.get(1)?,
+            holder_type: row.get(2)?,
+            holder_ref: row.get(3)?,
+            visibility_state: row.get(4)?,
+            chapter_acquired: row.get(5)?,
+            source_event_id: row.get(6)?,
         })
     };
 
@@ -526,18 +638,30 @@ pub fn list_knowledge_visibility(db: State<'_, DbState>, holder_ref: Option<Stri
         stmt.query_map([hr], map_row)
     } else {
         stmt.query_map([], map_row)
-    }.map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn upsert_knowledge_visibility(db: State<'_, DbState>, input: UpsertKnowledgeInput) -> Result<KnowledgeVisibilityInfo, String> {
+pub fn upsert_knowledge_visibility(
+    db: State<'_, DbState>,
+    input: UpsertKnowledgeInput,
+) -> Result<KnowledgeVisibilityInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
 
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let existing: Option<String> = conn.query_row("SELECT id FROM knowledge_visibility WHERE id = ?1", [&id], |r| r.get(0)).ok();
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT id FROM knowledge_visibility WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .ok();
 
     if existing.is_some() {
         conn.execute(
@@ -564,7 +688,10 @@ pub struct UpsertKnowledgeInput {
     pub source_event_id: Option<String>,
 }
 
-fn get_knowledge_visibility_inner(conn: &rusqlite::Connection, id: &str) -> Result<KnowledgeVisibilityInfo, String> {
+fn get_knowledge_visibility_inner(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<KnowledgeVisibilityInfo, String> {
     conn.query_row("SELECT id, knowledge_key, holder_type, holder_ref, visibility_state, chapter_acquired, source_event_id FROM knowledge_visibility WHERE id = ?1", [id], |row| {
         Ok(KnowledgeVisibilityInfo {
             id: row.get(0)?, knowledge_key: row.get(1)?, holder_type: row.get(2)?,
@@ -583,32 +710,96 @@ pub struct NotificationInfo {
     pub severity: String,
     pub message: String,
     pub related_entity: Option<String>,
+    pub related_entity_type: Option<String>,
+    pub related_entity_id: Option<String>,
     pub read_status: bool,
     pub created_at: String,
 }
 
 #[tauri::command]
-pub fn list_notifications(db: State<'_, DbState>, unread_only: Option<bool>) -> Result<Vec<NotificationInfo>, String> {
-    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+pub fn list_notifications(
+    db: State<'_, DbState>,
+    unread_only: Option<bool>,
+    related_entity_type: Option<String>,
+    related_entity_id: Option<String>,
+) -> Result<Vec<NotificationInfo>, String> {
+    let project_conn = db.lock_project_recover()?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
-    let sql = if unread_only.unwrap_or(false) {
-        "SELECT id, type, severity, message, related_entity_type, is_read, created_at FROM notifications WHERE is_read = 0 ORDER BY created_at DESC LIMIT 50"
-    } else {
-        "SELECT id, type, severity, message, related_entity_type, is_read, created_at FROM notifications ORDER BY created_at DESC LIMIT 50"
+    let map_row = |row: &rusqlite::Row| -> rusqlite::Result<NotificationInfo> {
+        Ok(NotificationInfo {
+            id: row.get(0)?,
+            notif_type: row.get(1)?,
+            severity: row.get(2)?,
+            message: row.get(3)?,
+            related_entity: row.get(4)?,
+            related_entity_type: row.get(4)?,
+            related_entity_id: row.get(5)?,
+            read_status: row.get::<_, i64>(6)? != 0,
+            created_at: row.get(7)?,
+        })
     };
 
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let items = stmt.query_map([], |row| Ok(NotificationInfo {
-        id: row.get(0)?, notif_type: row.get(1)?, severity: row.get(2)?,
-        message: row.get(3)?, related_entity: row.get(4)?,
-        read_status: row.get::<_, i64>(5)? != 0, created_at: row.get(6)?,
-    })).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let unread_only = unread_only.unwrap_or(false);
+    let sql_base = "SELECT id, type, severity, message, related_entity_type, related_entity_id, is_read, created_at FROM notifications";
+    let sql = match (
+        unread_only,
+        related_entity_type.as_deref(),
+        related_entity_id.as_deref(),
+    ) {
+        (true, Some(_), Some(_)) => format!(
+            "{} WHERE is_read = 0 AND related_entity_type = ?1 AND related_entity_id = ?2 ORDER BY created_at DESC LIMIT 50",
+            sql_base
+        ),
+        (false, Some(_), Some(_)) => format!(
+            "{} WHERE related_entity_type = ?1 AND related_entity_id = ?2 ORDER BY created_at DESC LIMIT 50",
+            sql_base
+        ),
+        (true, Some(_), None) => format!(
+            "{} WHERE is_read = 0 AND related_entity_type = ?1 ORDER BY created_at DESC LIMIT 50",
+            sql_base
+        ),
+        (false, Some(_), None) => format!(
+            "{} WHERE related_entity_type = ?1 ORDER BY created_at DESC LIMIT 50",
+            sql_base
+        ),
+        (true, None, Some(_)) => format!(
+            "{} WHERE is_read = 0 AND related_entity_id = ?1 ORDER BY created_at DESC LIMIT 50",
+            sql_base
+        ),
+        (false, None, Some(_)) => format!(
+            "{} WHERE related_entity_id = ?1 ORDER BY created_at DESC LIMIT 50",
+            sql_base
+        ),
+        (true, None, None) => {
+            format!("{} WHERE is_read = 0 ORDER BY created_at DESC LIMIT 50", sql_base)
+        }
+        (false, None, None) => format!("{} ORDER BY created_at DESC LIMIT 50", sql_base),
+    };
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let items = match (related_entity_type, related_entity_id) {
+        (Some(entity_type), Some(entity_id)) => {
+            stmt.query_map(rusqlite::params![entity_type, entity_id], map_row)
+        }
+        (Some(entity_type), None) => stmt.query_map(rusqlite::params![entity_type], map_row),
+        (None, Some(entity_id)) => stmt.query_map(rusqlite::params![entity_id], map_row),
+        (None, None) => stmt.query_map([], map_row),
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
     Ok(items)
 }
 
 #[tauri::command]
-pub fn create_notification(db: State<'_, DbState>, notif_type: String, severity: String, message: String, related_entity: Option<String>) -> Result<NotificationInfo, String> {
+pub fn create_notification(
+    db: State<'_, DbState>,
+    notif_type: String,
+    severity: String,
+    message: String,
+    related_entity: Option<String>,
+) -> Result<NotificationInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let project_id = db.current_project_id().unwrap_or_default();
@@ -620,14 +811,25 @@ pub fn create_notification(db: State<'_, DbState>, notif_type: String, severity:
         rusqlite::params![id, project_id, notif_type, severity, message, related_entity, now],
     ).map_err(|e| e.to_string())?;
 
-    Ok(NotificationInfo { id, notif_type, severity, message, related_entity, read_status: false, created_at: now })
+    Ok(NotificationInfo {
+        id,
+        notif_type,
+        severity,
+        message,
+        related_entity: related_entity.clone(),
+        related_entity_type: related_entity,
+        related_entity_id: None,
+        read_status: false,
+        created_at: now,
+    })
 }
 
 #[tauri::command]
 pub fn mark_notification_read(db: State<'_, DbState>, id: String) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
-    conn.execute("UPDATE notifications SET is_read = 1 WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE id = ?1", [&id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -648,7 +850,9 @@ pub struct NotificationCountByType {
 }
 
 #[tauri::command]
-pub fn get_unread_notification_count(db: State<'_, DbState>) -> Result<UnreadNotificationCount, String> {
+pub fn get_unread_notification_count(
+    db: State<'_, DbState>,
+) -> Result<UnreadNotificationCount, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -657,7 +861,8 @@ pub fn get_unread_notification_count(db: State<'_, DbState>) -> Result<UnreadNot
             "SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND type = ?1",
             [notif_type],
             |r| r.get(0),
-        ).unwrap_or(0)
+        )
+        .unwrap_or(0)
     };
 
     let compiler = count_by_type("compiler");
@@ -679,12 +884,35 @@ pub fn get_unread_notification_count(db: State<'_, DbState>) -> Result<UnreadNot
 
 /// Helper to create notifications from pipeline steps (available for orchestrator integration)
 #[allow(dead_code)]
-pub fn notify_pipeline_event(conn: &rusqlite::Connection, project_id: &str, notif_type: &str, severity: &str, message: &str) {
+pub fn notify_pipeline_event(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    notif_type: &str,
+    severity: &str,
+    message: &str,
+) {
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let _ = conn.execute(
         "INSERT INTO notifications (id, project_id, type, severity, message, is_read, created_at) VALUES (?1,?2,?3,?4,?5,0,?6)",
         rusqlite::params![id, project_id, notif_type, severity, message, now],
+    );
+}
+
+pub fn notify_pipeline_event_with_entity(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    notif_type: &str,
+    severity: &str,
+    message: &str,
+    related_entity_type: Option<&str>,
+    related_entity_id: Option<&str>,
+) {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = conn.execute(
+        "INSERT INTO notifications (id, project_id, type, severity, message, related_entity_type, related_entity_id, is_read, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8)",
+        rusqlite::params![id, project_id, notif_type, severity, message, related_entity_type, related_entity_id, now],
     );
 }
 
@@ -708,9 +936,7 @@ pub fn get_ledger_summary(db: State<'_, DbState>) -> Result<LedgerSummary, Strin
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
-    let count = |sql: &str| -> i64 {
-        conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0)
-    };
+    let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0) };
 
     Ok(LedgerSummary {
         character_states_count: count("SELECT COUNT(*) FROM character_states"),
@@ -718,9 +944,15 @@ pub fn get_ledger_summary(db: State<'_, DbState>) -> Result<LedgerSummary, Strin
         timeline_nodes_count: count("SELECT COUNT(*) FROM timeline_nodes"),
         event_nodes_count: count("SELECT COUNT(*) FROM event_nodes"),
         foreshadow_items_count: count("SELECT COUNT(*) FROM foreshadow_items"),
-        foreshadow_planted_count: count("SELECT COUNT(*) FROM foreshadow_items WHERE status = 'planted'"),
-        foreshadow_resolved_count: count("SELECT COUNT(*) FROM foreshadow_items WHERE status = 'resolved'"),
-        foreshadow_overdue_count: count("SELECT COUNT(*) FROM foreshadow_items WHERE status = 'overdue'"),
+        foreshadow_planted_count: count(
+            "SELECT COUNT(*) FROM foreshadow_items WHERE status = 'planted'",
+        ),
+        foreshadow_resolved_count: count(
+            "SELECT COUNT(*) FROM foreshadow_items WHERE status = 'resolved'",
+        ),
+        foreshadow_overdue_count: count(
+            "SELECT COUNT(*) FROM foreshadow_items WHERE status = 'overdue'",
+        ),
         ability_items_count: count("SELECT COUNT(*) FROM ability_items"),
     })
 }
@@ -832,16 +1064,29 @@ pub fn recall_ledger_context(
         let mut stmt = conn.prepare(
             "SELECT id, character_id, snapshot_id, chapter_from, chapter_to, level_state, physical_state, emotion_state, goal_state, location_id, resource_state, known_info, secret_info, created_at FROM character_states WHERE chapter_from <= ?1 AND (chapter_to IS NULL OR chapter_to >= ?1) ORDER BY character_id"
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([input.chapter_number], |row| {
-            Ok(CharacterStateInfo {
-                id: row.get(0)?, character_id: row.get(1)?, snapshot_id: row.get(2)?,
-                chapter_from: row.get(3)?, chapter_to: row.get(4)?, level_state: row.get(5)?,
-                physical_state: row.get(6)?, emotion_state: row.get(7)?, goal_state: row.get(8)?,
-                location_id: row.get(9)?, resource_state: row.get(10)?, known_info: row.get(11)?,
-                secret_info: row.get(12)?, created_at: row.get(13)?,
+        let rows = stmt
+            .query_map([input.chapter_number], |row| {
+                Ok(CharacterStateInfo {
+                    id: row.get(0)?,
+                    character_id: row.get(1)?,
+                    snapshot_id: row.get(2)?,
+                    chapter_from: row.get(3)?,
+                    chapter_to: row.get(4)?,
+                    level_state: row.get(5)?,
+                    physical_state: row.get(6)?,
+                    emotion_state: row.get(7)?,
+                    goal_state: row.get(8)?,
+                    location_id: row.get(9)?,
+                    resource_state: row.get(10)?,
+                    known_info: row.get(11)?,
+                    secret_info: row.get(12)?,
+                    created_at: row.get(13)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        let mut items: Vec<CharacterStateInfo> = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
+        let mut items: Vec<CharacterStateInfo> = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
         // Filter by character_ids if provided
         if let Some(ref ids) = input.character_ids {
             items.retain(|cs| ids.contains(&cs.character_id));
@@ -854,18 +1099,31 @@ pub fn recall_ledger_context(
         let mut stmt = conn.prepare(
             "SELECT id, source_character_id, target_character_id, relation_type, strength, trust_score, conflict_score, chapter_from, chapter_to, trigger_event_id, notes FROM relationship_states WHERE chapter_from <= ?1 AND (chapter_to IS NULL OR chapter_to >= ?1) ORDER BY chapter_from"
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([input.chapter_number], |row| {
-            Ok(RelationshipStateInfo {
-                id: row.get(0)?, source_character_id: row.get(1)?, target_character_id: row.get(2)?,
-                relation_type: row.get(3)?, strength: row.get(4)?, trust_score: row.get(5)?,
-                conflict_score: row.get(6)?, chapter_from: row.get(7)?, chapter_to: row.get(8)?,
-                trigger_event_id: row.get(9)?, notes: row.get(10)?,
+        let rows = stmt
+            .query_map([input.chapter_number], |row| {
+                Ok(RelationshipStateInfo {
+                    id: row.get(0)?,
+                    source_character_id: row.get(1)?,
+                    target_character_id: row.get(2)?,
+                    relation_type: row.get(3)?,
+                    strength: row.get(4)?,
+                    trust_score: row.get(5)?,
+                    conflict_score: row.get(6)?,
+                    chapter_from: row.get(7)?,
+                    chapter_to: row.get(8)?,
+                    trigger_event_id: row.get(9)?,
+                    notes: row.get(10)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        let mut items: Vec<RelationshipStateInfo> = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
+        let mut items: Vec<RelationshipStateInfo> = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
         // Filter by character_ids if provided
         if let Some(ref ids) = input.character_ids {
-            items.retain(|r| ids.contains(&r.source_character_id) || ids.contains(&r.target_character_id));
+            items.retain(|r| {
+                ids.contains(&r.source_character_id) || ids.contains(&r.target_character_id)
+            });
         }
         items
     };
@@ -875,15 +1133,24 @@ pub fn recall_ledger_context(
         let mut stmt = conn.prepare(
             "SELECT id, seed_chapter, expected_volume_id, title, maturity_condition, payoff_type, status, resolved_chapter, importance, notes FROM foreshadow_items WHERE status IN ('planted', 'overdue') AND seed_chapter <= ?1 ORDER BY seed_chapter"
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([input.chapter_number], |row| {
-            Ok(ForeshadowItemInfo {
-                id: row.get(0)?, seed_chapter: row.get(1)?, expected_volume_id: row.get(2)?,
-                title: row.get(3)?, maturity_condition: row.get(4)?, payoff_type: row.get(5)?,
-                status: row.get(6)?, resolved_chapter: row.get(7)?, importance: row.get(8)?,
-                notes: row.get(9)?,
+        let rows = stmt
+            .query_map([input.chapter_number], |row| {
+                Ok(ForeshadowItemInfo {
+                    id: row.get(0)?,
+                    seed_chapter: row.get(1)?,
+                    expected_volume_id: row.get(2)?,
+                    title: row.get(3)?,
+                    maturity_condition: row.get(4)?,
+                    payoff_type: row.get(5)?,
+                    status: row.get(6)?,
+                    resolved_chapter: row.get(7)?,
+                    importance: row.get(8)?,
+                    notes: row.get(9)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
 
     // Fetch recent timeline events (last 10 events up to this chapter)
@@ -891,14 +1158,22 @@ pub fn recall_ledger_context(
         let mut stmt = conn.prepare(
             "SELECT id, chapter_number, world_date, relative_day, location_id, summary, participants, dependencies FROM timeline_nodes WHERE chapter_number <= ?1 ORDER BY relative_day DESC, chapter_number DESC LIMIT 10"
         ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([input.chapter_number], |row| {
-            Ok(TimelineNodeInfo {
-                id: row.get(0)?, chapter_number: row.get(1)?, world_date: row.get(2)?,
-                relative_day: row.get(3)?, location_id: row.get(4)?, summary: row.get(5)?,
-                participants: row.get(6)?, dependencies: row.get(7)?,
+        let rows = stmt
+            .query_map([input.chapter_number], |row| {
+                Ok(TimelineNodeInfo {
+                    id: row.get(0)?,
+                    chapter_number: row.get(1)?,
+                    world_date: row.get(2)?,
+                    relative_day: row.get(3)?,
+                    location_id: row.get(4)?,
+                    summary: row.get(5)?,
+                    participants: row.get(6)?,
+                    dependencies: row.get(7)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
 
     // Build compact context_text (limit ~2000 chars)
@@ -910,13 +1185,23 @@ pub fn recall_ledger_context(
         for cs in &char_states {
             let mut parts: Vec<String> = Vec::new();
             parts.push(format!("[{}]", cs.character_id));
-            if let Some(ref level) = cs.level_state { parts.push(format!("等级:{}", level)); }
-            if let Some(ref emotion) = cs.emotion_state { parts.push(format!("情绪:{}", emotion)); }
-            if let Some(ref goal) = cs.goal_state { parts.push(format!("目标:{}", goal)); }
-            if let Some(ref loc) = cs.location_id { parts.push(format!("位置:{}", loc)); }
+            if let Some(ref level) = cs.level_state {
+                parts.push(format!("等级:{}", level));
+            }
+            if let Some(ref emotion) = cs.emotion_state {
+                parts.push(format!("情绪:{}", emotion));
+            }
+            if let Some(ref goal) = cs.goal_state {
+                parts.push(format!("目标:{}", goal));
+            }
+            if let Some(ref loc) = cs.location_id {
+                parts.push(format!("位置:{}", loc));
+            }
             text.push_str(&parts.join(" "));
             text.push('\n');
-            if text.len() > 1800 { break; }
+            if text.len() > 1800 {
+                break;
+            }
         }
         text.push('\n');
     }
@@ -925,12 +1210,21 @@ pub fn recall_ledger_context(
     if !relationships.is_empty() && text.len() < 1800 {
         text.push_str("【活跃关系】\n");
         for r in &relationships {
-            let mut rel = format!("{}->{}:{}", r.source_character_id, r.target_character_id, r.relation_type);
-            if let Some(s) = r.strength { rel.push_str(&format!(" 强度:{}", s)); }
-            if let Some(t) = r.trust_score { rel.push_str(&format!(" 信任:{}", t)); }
+            let mut rel = format!(
+                "{}->{}:{}",
+                r.source_character_id, r.target_character_id, r.relation_type
+            );
+            if let Some(s) = r.strength {
+                rel.push_str(&format!(" 强度:{}", s));
+            }
+            if let Some(t) = r.trust_score {
+                rel.push_str(&format!(" 信任:{}", t));
+            }
             text.push_str(&rel);
             text.push('\n');
-            if text.len() > 1800 { break; }
+            if text.len() > 1800 {
+                break;
+            }
         }
         text.push('\n');
     }
@@ -939,8 +1233,13 @@ pub fn recall_ledger_context(
     if !foreshadows.is_empty() && text.len() < 1800 {
         text.push_str("【未回收伏笔】\n");
         for f in &foreshadows {
-            text.push_str(&format!("- [{}] {} (种子第{}章)\n", f.status, f.title, f.seed_chapter));
-            if text.len() > 1800 { break; }
+            text.push_str(&format!(
+                "- [{}] {} (种子第{}章)\n",
+                f.status, f.title, f.seed_chapter
+            ));
+            if text.len() > 1800 {
+                break;
+            }
         }
         text.push('\n');
     }
@@ -949,21 +1248,29 @@ pub fn recall_ledger_context(
     if !timeline_events.is_empty() && text.len() < 1800 {
         text.push_str("【近期时间线】\n");
         for t in &timeline_events {
-            let day = t.relative_day.map(|d| format!("第{}天", d)).unwrap_or_default();
-            let ch = t.chapter_number.map(|c| format!("第{}章", c)).unwrap_or_default();
+            let day = t
+                .relative_day
+                .map(|d| format!("第{}天", d))
+                .unwrap_or_default();
+            let ch = t
+                .chapter_number
+                .map(|c| format!("第{}章", c))
+                .unwrap_or_default();
             text.push_str(&format!("- {} {}: {}\n", day, ch, t.summary));
-            if text.len() > 1800 { break; }
+            if text.len() > 1800 {
+                break;
+            }
         }
     }
 
     // Truncate to ~2000 chars
     if text.len() > 2000 {
         // Find a good cut point (at a newline)
-        let trunc = &text[..2000];
+        let trunc: String = text.chars().take(2000).collect();
         if let Some(last_nl) = trunc.rfind('\n') {
-            text = text[..=last_nl].to_string();
+            text = trunc[..=last_nl].to_string();
         } else {
-            text = trunc.to_string();
+            text = trunc;
         }
         text.push_str("...(已截断)");
     }

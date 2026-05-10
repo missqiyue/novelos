@@ -1,5 +1,13 @@
 import { webDb } from "../web-db";
-import { uuid, now, boolToInt, intToBool, nullIfUndefined, requireProjectId, WebNotSupportedError } from "./index";
+import {
+  uuid,
+  now,
+  boolToInt,
+  intToBool,
+  nullIfUndefined,
+  requireProjectId,
+  WebNotSupportedError,
+} from "./index";
 
 import type {
   BookOutlineInfo,
@@ -21,7 +29,9 @@ export const outlineApi = {
     const id = uuid();
     const ts = now();
     const projectId = requireProjectId();
-    const nextVer = webDb.get<{ v: number }>("SELECT COALESCE(MAX(version), 0) + 1 as v FROM book_outlines");
+    const nextVer = webDb.get<{ v: number }>(
+      "SELECT COALESCE(MAX(version), 0) + 1 as v FROM book_outlines",
+    );
     webDb.run(
       "INSERT INTO book_outlines (id, project_id, version, content_json, change_reason, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)",
       [id, projectId, nextVer?.v ?? 1, contentJson, nullIfUndefined(changeReason), ts, ts],
@@ -38,7 +48,11 @@ export const outlineApi = {
     );
   },
 
-  async saveVolumeOutline(volumeId: string, contentJson: string, changeReason?: string): Promise<VolumeOutlineInfo> {
+  async saveVolumeOutline(
+    volumeId: string,
+    contentJson: string,
+    changeReason?: string,
+  ): Promise<VolumeOutlineInfo> {
     const id = uuid();
     const ts = now();
     const projectId = requireProjectId();
@@ -48,7 +62,16 @@ export const outlineApi = {
     );
     webDb.run(
       "INSERT INTO volume_outlines (id, project_id, volume_id, version, content_json, change_reason, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)",
-      [id, projectId, volumeId, nextVer?.v ?? 1, contentJson, nullIfUndefined(changeReason), ts, ts],
+      [
+        id,
+        projectId,
+        volumeId,
+        nextVer?.v ?? 1,
+        contentJson,
+        nullIfUndefined(changeReason),
+        ts,
+        ts,
+      ],
     );
     return webDb.get<VolumeOutlineInfo>(
       "SELECT id, volume_id, version, content_json, change_reason, status, created_at, updated_at FROM volume_outlines WHERE id = ?",
@@ -62,8 +85,20 @@ export const outlineApi = {
     );
   },
 
+  async getLatestChapterOutline(chapterNumber: number): Promise<ChapterOutlineInfo | null> {
+    return (
+      webDb.get<ChapterOutlineInfo>(
+        "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines WHERE chapter_number = ? ORDER BY version DESC, updated_at DESC LIMIT 1",
+        [chapterNumber],
+      ) ?? null
+    );
+  },
+
   async saveChapterOutline(
-    chapterNumber: number, contentJson: string, taskId?: string, changeReason?: string,
+    chapterNumber: number,
+    contentJson: string,
+    taskId?: string,
+    changeReason?: string,
   ): Promise<ChapterOutlineInfo> {
     const id = uuid();
     const ts = now();
@@ -75,7 +110,17 @@ export const outlineApi = {
     webDb.run(
       `INSERT INTO chapter_outlines (id, project_id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?)`,
-      [id, projectId, chapterNumber, nullIfUndefined(taskId), nextVer?.v ?? 1, contentJson, nullIfUndefined(changeReason), ts, ts],
+      [
+        id,
+        projectId,
+        chapterNumber,
+        nullIfUndefined(taskId),
+        nextVer?.v ?? 1,
+        contentJson,
+        nullIfUndefined(changeReason),
+        ts,
+        ts,
+      ],
     );
     return webDb.get<ChapterOutlineInfo>(
       "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines WHERE id = ?",
@@ -98,13 +143,21 @@ export const outlineApi = {
   },
 
   async updateVolume(
-    id: string, title?: string, goal?: string, mainConflict?: string, climax?: string, settlement?: string, status?: string,
+    id: string,
+    title?: string,
+    goal?: string,
+    mainConflict?: string,
+    climax?: string,
+    settlement?: string,
+    status?: string,
   ): Promise<void> {
     if (title !== undefined) webDb.run("UPDATE volumes SET title = ? WHERE id = ?", [title, id]);
     if (goal !== undefined) webDb.run("UPDATE volumes SET goal = ? WHERE id = ?", [goal, id]);
-    if (mainConflict !== undefined) webDb.run("UPDATE volumes SET main_conflict = ? WHERE id = ?", [mainConflict, id]);
+    if (mainConflict !== undefined)
+      webDb.run("UPDATE volumes SET main_conflict = ? WHERE id = ?", [mainConflict, id]);
     if (climax !== undefined) webDb.run("UPDATE volumes SET climax = ? WHERE id = ?", [climax, id]);
-    if (settlement !== undefined) webDb.run("UPDATE volumes SET settlement = ? WHERE id = ?", [settlement, id]);
+    if (settlement !== undefined)
+      webDb.run("UPDATE volumes SET settlement = ? WHERE id = ?", [settlement, id]);
     if (status !== undefined) webDb.run("UPDATE volumes SET status = ? WHERE id = ?", [status, id]);
   },
 
@@ -116,7 +169,12 @@ export const outlineApi = {
   },
 
   async createArc(input: {
-    volume_id: string; title: string; arc_type?: string; chapter_start?: number; chapter_end?: number; goal?: string;
+    volume_id: string;
+    title: string;
+    arc_type?: string;
+    chapter_start?: number;
+    chapter_end?: number;
+    goal?: string;
   }): Promise<ArcInfo> {
     const id = uuid();
     const ts = now();
@@ -129,9 +187,17 @@ export const outlineApi = {
     webDb.run(
       `INSERT INTO arcs (id, project_id, volume_id, arc_type, title, chapter_start, chapter_end, goal, status, priority)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-      [id, projectId, input.volume_id, arcType, input.title,
-       nullIfUndefined(input.chapter_start), nullIfUndefined(input.chapter_end),
-       nullIfUndefined(input.goal), nextPriority?.p ?? 1],
+      [
+        id,
+        projectId,
+        input.volume_id,
+        arcType,
+        input.title,
+        nullIfUndefined(input.chapter_start),
+        nullIfUndefined(input.chapter_end),
+        nullIfUndefined(input.goal),
+        nextPriority?.p ?? 1,
+      ],
     );
     return webDb.get<ArcInfo>(
       "SELECT id, volume_id, arc_type, title, chapter_start, chapter_end, goal, status, priority FROM arcs WHERE id = ?",

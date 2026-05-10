@@ -11,6 +11,7 @@ pub struct PipelineStep {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PipelineResult {
+    pub run_id: String,
     pub steps: Vec<PipelineStep>,
     pub chapter_status: String,
     pub compiler_score: Option<i32>,
@@ -139,7 +140,7 @@ pub struct ReviewConflict {
     pub position_a: String,
     pub expert_b: String,
     pub position_b: String,
-    pub severity: String, // "low", "medium", "high"
+    pub severity: String,                // "low", "medium", "high"
     pub user_resolution: Option<String>, // "favor_a", "favor_b", "ignore", null
 }
 
@@ -154,16 +155,24 @@ pub struct ConflictMatrix {
 /// Parse a single expert's score from its JSON output
 fn parse_expert_score(output: &str) -> Option<f32> {
     let v: serde_json::Value = serde_json::from_str(output).ok()?;
-    v.get("score")?.as_f64().map(|s| s as f32)
-        .or_else(|| v.get("ai_score")?.as_f64().map(|s| ((100.0 - s) / 10.0) as f32))
+    v.get("score")?.as_f64().map(|s| s as f32).or_else(|| {
+        v.get("ai_score")?
+            .as_f64()
+            .map(|s| ((100.0 - s) / 10.0) as f32)
+    })
 }
 
 /// Detect conflicts between 8 expert review outputs
 pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMatrix {
     let expert_names = [
-        "plot_expert", "character_expert", "pacing_expert",
-        "worldbuilding_expert", "prose_expert", "commercial_expert",
-        "reader_panel", "voice_audit",
+        "plot_expert",
+        "character_expert",
+        "pacing_expert",
+        "worldbuilding_expert",
+        "prose_expert",
+        "commercial_expert",
+        "reader_panel",
+        "voice_audit",
     ];
 
     // Parse scores
@@ -177,7 +186,12 @@ pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMat
     }
 
     let scores: Vec<f32> = expert_scores.iter().map(|(_, s)| *s).collect();
-    let score_spread = if scores.is_empty() { 0.0 } else { scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max) - scores.iter().cloned().fold(f32::INFINITY, f32::min) };
+    let score_spread = if scores.is_empty() {
+        0.0
+    } else {
+        scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+            - scores.iter().cloned().fold(f32::INFINITY, f32::min)
+    };
 
     let mut conflicts = Vec::new();
 
@@ -188,7 +202,13 @@ pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMat
             if gap > 3.0 {
                 let severity = if gap > 5.0 { "high" } else { "medium" };
                 conflicts.push(ReviewConflict {
-                    topic: format!("评分分歧：{}({}) vs {}({})", expert_scores[i].0, expert_scores[i].1, expert_scores[j].0, expert_scores[j].1),
+                    topic: format!(
+                        "评分分歧：{}({}) vs {}({})",
+                        expert_scores[i].0,
+                        expert_scores[i].1,
+                        expert_scores[j].0,
+                        expert_scores[j].1
+                    ),
                     expert_a: expert_scores[i].0.clone(),
                     position_a: format!("评分 {}", expert_scores[i].1),
                     expert_b: expert_scores[j].0.clone(),
@@ -210,15 +230,24 @@ pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMat
             Ok(v) => v,
             Err(_) => continue,
         };
-        let must_fix_a: Vec<String> = val_a.get("must_fix")
+        let must_fix_a: Vec<String> = val_a
+            .get("must_fix")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
-        if must_fix_a.is_empty() { continue; }
+        if must_fix_a.is_empty() {
+            continue;
+        }
 
         for j in 0..8 {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             let output_b = match expert_outputs.get(j).and_then(|o| o.as_ref()) {
                 Some(o) => o,
                 None => continue,
@@ -227,9 +256,14 @@ pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMat
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            let strengths_b: Vec<String> = val_b.get("strengths")
+            let strengths_b: Vec<String> = val_b
+                .get("strengths")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
 
             for fix in &must_fix_a {
@@ -259,8 +293,14 @@ pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMat
         let voice_output = expert_outputs.get(7).and_then(|o| o.as_ref());
         let prose_output = expert_outputs.get(4).and_then(|o| o.as_ref());
         if let (Some(vo), Some(po)) = (voice_output, prose_output) {
-            if let (Ok(vv), Ok(pv)) = (serde_json::from_str::<serde_json::Value>(vo), serde_json::from_str::<serde_json::Value>(po)) {
-                let voice_verdict = vv.get("overall_verdict").and_then(|v| v.as_str()).unwrap_or("");
+            if let (Ok(vv), Ok(pv)) = (
+                serde_json::from_str::<serde_json::Value>(vo),
+                serde_json::from_str::<serde_json::Value>(po),
+            ) {
+                let voice_verdict = vv
+                    .get("overall_verdict")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let prose_score = pv.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 if voice_verdict == "must_rewrite" && prose_score >= 7.0 {
                     conflicts.push(ReviewConflict {
@@ -287,7 +327,9 @@ pub fn detect_review_conflicts(expert_outputs: &[Option<String>]) -> ConflictMat
 /// Determine pipeline status and score from steps
 pub fn evaluate_pipeline(steps: &[PipelineStep]) -> (String, Option<i32>, Option<f32>) {
     let failed_steps: Vec<&PipelineStep> = steps.iter().filter(|s| s.status == "failed").collect();
-    let review_chair = steps.iter().find(|s| s.name == "终审裁决" && s.status == "completed");
+    let review_chair = steps
+        .iter()
+        .find(|s| s.name == "终审裁决" && s.status == "completed");
 
     let status = if failed_steps.len() > 2 {
         "review_required"
@@ -322,7 +364,7 @@ pub fn evaluate_pipeline(steps: &[PipelineStep]) -> (String, Option<i32>, Option
 pub struct TaskItem {
     pub id: String,
     pub agent_name: String,
-    pub priority: u8, // 1=highest, 5=lowest
+    pub priority: u8,   // 1=highest, 5=lowest
     pub status: String, // "queued", "running", "completed", "failed", "cancelled"
     pub max_retries: u8,
     pub retry_count: u8,
@@ -410,11 +452,11 @@ pub fn route_failure(failed_step_name: &str, attempt: u8) -> &str {
 /// AGT-005: Agent timeout configuration (in seconds)
 pub fn get_agent_timeout(agent_name: &str) -> u64 {
     match agent_name {
-        "draft_writer" => 120,
-        "voice_filter" => 90,
+        "draft_writer" => 300,
+        "voice_filter" => 180,
         "task_card" => 60,
-        "recall_agent" => 45,
-        "chapter_outline" => 60,
+        "recall_agent" => 120,
+        "chapter_outline" => 120,
         "review_chair" => 90,
         _ => 60, // default
     }

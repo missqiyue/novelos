@@ -1,3 +1,4 @@
+use crate::commands::llm::LlmState;
 use crate::db::DbState;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -92,9 +93,10 @@ pub fn check_crash_recovery(
 
 /// Restore a chapter from crash recovery and clean up the recovery file.
 #[tauri::command]
-pub fn restore_crash_draft(
+pub async fn restore_crash_draft(
     app: AppHandle,
     db: State<'_, DbState>,
+    llm: State<'_, LlmState>,
     chapter_number: i64,
 ) -> Result<String, String> {
     let project_id = db.current_project_id().ok_or("No project open")?;
@@ -121,7 +123,14 @@ pub fn restore_crash_draft(
 
     // Restore to DB via the normal update_chapter_draft path
     if !draft_text.trim().is_empty() {
-        super::chapter::update_chapter_draft(db, chapter_number, draft_text.clone(), Some(true))?;
+        super::chapter::update_chapter_draft(
+            db,
+            llm,
+            chapter_number,
+            draft_text.clone(),
+            Some(true),
+        )
+        .await?;
     }
 
     // Clean up recovery file

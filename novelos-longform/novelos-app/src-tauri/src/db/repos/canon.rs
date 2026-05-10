@@ -41,7 +41,11 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<CanonRuleRow> {
     })
 }
 
-fn query_list(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<CanonRuleRow>, String> {
+fn query_list(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<CanonRuleRow>, String> {
     let mut stmt = conn.prepare(sql).map_err(db_err)?;
     let rows = stmt.query_map(params, map_row).map_err(db_err)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
@@ -63,12 +67,19 @@ impl Repository<CanonRuleRow> for CanonRuleRepo {
     }
 
     fn list(conn: &Connection) -> Result<Vec<CanonRuleRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM canon_rules ORDER BY created_at"), [])
+        query_list(
+            conn,
+            &format!("SELECT {SELECT_COLS} FROM canon_rules ORDER BY created_at"),
+            [],
+        )
     }
 
     fn delete(conn: &Connection, id: &str) -> Result<(), String> {
-        conn.execute("DELETE FROM canon_rule_versions WHERE canon_rule_id = ?1", [id])
-            .map_err(db_err)?;
+        conn.execute(
+            "DELETE FROM canon_rule_versions WHERE canon_rule_id = ?1",
+            [id],
+        )
+        .map_err(db_err)?;
         conn.execute("DELETE FROM canon_rules WHERE id = ?1", [id])
             .map_err(db_err)?;
         Ok(())
@@ -77,7 +88,13 @@ impl Repository<CanonRuleRow> for CanonRuleRepo {
 
 impl CanonRuleRepo {
     pub fn list_by_scope(conn: &Connection, scope_type: &str) -> Result<Vec<CanonRuleRow>, String> {
-        query_list(conn, &format!("SELECT {SELECT_COLS} FROM canon_rules WHERE scope_type = ?1 ORDER BY created_at"), [scope_type])
+        query_list(
+            conn,
+            &format!(
+                "SELECT {SELECT_COLS} FROM canon_rules WHERE scope_type = ?1 ORDER BY created_at"
+            ),
+            [scope_type],
+        )
     }
 
     pub fn search(conn: &Connection, query: &str) -> Result<Vec<CanonRuleRow>, String> {
@@ -118,11 +135,16 @@ fn map_version_row(row: &rusqlite::Row) -> rusqlite::Result<CanonRuleVersionRow>
 pub struct CanonRuleVersionRepo;
 
 impl CanonRuleVersionRepo {
-    pub fn list_by_rule(conn: &Connection, canon_rule_id: &str) -> Result<Vec<CanonRuleVersionRow>, String> {
+    pub fn list_by_rule(
+        conn: &Connection,
+        canon_rule_id: &str,
+    ) -> Result<Vec<CanonRuleVersionRow>, String> {
         let mut stmt = conn
             .prepare("SELECT id, canon_rule_id, version, content, change_reason, created_by, created_at FROM canon_rule_versions WHERE canon_rule_id = ?1 ORDER BY version DESC")
             .map_err(db_err)?;
-        let rows = stmt.query_map([canon_rule_id], map_version_row).map_err(db_err)?;
+        let rows = stmt
+            .query_map([canon_rule_id], map_version_row)
+            .map_err(db_err)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 }

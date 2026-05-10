@@ -1,86 +1,88 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useEditor, EditorContent, Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import CharacterCount from "@tiptap/extension-character-count";
-import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
-  Bold,
-  Italic,
-  Strikethrough,
-  Heading2,
-  List,
-  ListOrdered,
-  Quote,
-  Undo,
-  Redo,
+  Pencil,
+  Eye,
   Search,
   Settings2,
+  Type,
+  Clock,
+  BookOpen,
 } from "lucide-react";
 import { FindReplaceBar } from "./FindReplaceBar";
 import { EditorPrefsPanel } from "./EditorPrefsPanel";
 import { sharedResourcesApi, type EditorPrefs } from "../../lib/api";
 
-// ─── Search Highlight Extension ───
+// ─── Paragraph Rendering (inkos-inspired) ───
 
-const searchHighlightKey = new PluginKey("searchHighlight");
+function parseContent(content: string): { title: string; body: string } {
+  const normalized = content.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const titleLine = lines.find((l) => l.startsWith("# "));
+  if (titleLine) {
+    const title = titleLine.replace(/^#\s*/, "").trim();
+    const body = lines
+      .filter((l) => l !== titleLine)
+      .join("\n")
+      .trim();
+    console.log("[Editor] parseContent found # title:", title.substring(0, 60), "body len:", body.length);
+    return { title, body };
+  }
+  // No markdown heading — return empty title, body unchanged
+  console.log("[Editor] parseContent no # title found, body len:", normalized.length);
+  return { title: "", body: normalized };
+}
 
-function findTextPositions(doc: any, query: string): { from: number; to: number }[] {
-  if (!query) return [];
-  const results: { from: number; to: number }[] = [];
-  const lowerQuery = query.toLowerCase();
-  doc.descendants((node: any, pos: number) => {
-    if (!node.isText) return;
-    const text = node.text!.toLowerCase();
-    let idx = text.indexOf(lowerQuery);
-    while (idx !== -1) {
-      results.push({ from: pos + idx, to: pos + idx + query.length });
-      idx = text.indexOf(lowerQuery, idx + 1);
+function renderParagraphs(body: string): string[] {
+  if (!body.trim()) return [];
+  // Normalize line endings
+  const normalized = body.replace(/\r\n/g, "\n");
+  // Try double-newline first (markdown standard)
+  let raw = normalized.split(/\n\n+/).filter((p) => p.trim());
+  // If only one block found, fall back to single-newline split
+  if (raw.length <= 1) {
+    raw = normalized.split(/\n+/).filter((p) => p.trim());
+  }
+  // If STILL one block (LLM returned text with no line breaks at all),
+  // add paragraph breaks at Chinese sentence endings (。！？etc.)
+  if (raw.length <= 1 && raw[0]) {
+    console.log("[Editor] falling back to splitIntelligentParagraphs, first 300 chars:", raw[0].substring(0, 300));
+    raw = splitIntelligentParagraphs(raw[0]);
+    console.log("[Editor] splitIntelligentParagraphs returned", raw.length, "paragraphs");
+  }
+  // Clean up: collapse internal whitespace within each paragraph
+  return raw.map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+
+/// Insert paragraph breaks at natural boundaries when LLM output has no formatting.
+/// Groups 3-5 Chinese sentences per paragraph, breaks at 。！？」
+function splitIntelligentParagraphs(text: string): string[] {
+  // Split at Chinese sentence-terminating punctuation, keeping the punctuation
+  const sentences = text.split(/(?<=[。！？」』）])/);
+  console.log("[Editor] splitIntelligentParagraphs: text len:", text.length, "sentences found:", sentences.length, "first sentence:", sentences[0]?.substring(0, 100));
+  if (sentences.length <= 1) return [text];
+
+  // Group sentences into paragraphs (3-5 sentences each for ~150-300 chars)
+  const paragraphs: string[] = [];
+  let current = "";
+  let sentenceCount = 0;
+  const TARGET_SENTENCES = 4;
+
+  const SENTENCE_END = /[。！？」』）…]$/;
+  for (const s of sentences) {
+    current += s;
+    sentenceCount++;
+    if (sentenceCount >= TARGET_SENTENCES && SENTENCE_END.test(s.trim())) {
+      paragraphs.push(current.trim());
+      current = "";
+      sentenceCount = 0;
     }
-  });
-  return results;
+  }
+  // Don't forget the last partial paragraph
+  if (current.trim()) {
+    paragraphs.push(current.trim());
+  }
+  return paragraphs.length > 0 ? paragraphs : [text];
 }
-
-function buildDecorations(doc: any, query: string, activeIndex: number): DecorationSet {
-  const positions = findTextPositions(doc, query);
-  if (positions.length === 0) return DecorationSet.empty;
-  const decorations = positions.map((pos, i) =>
-    Decoration.inline(pos.from, pos.to, {
-      class: i === activeIndex
-        ? "bg-yellow-300 outline outline-1 outline-yellow-500"
-        : "bg-yellow-200",
-    }),
-  );
-  return DecorationSet.create(doc, decorations);
-}
-
-const SearchHighlight = Extension.create({
-  name: "searchHighlight",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: searchHighlightKey,
-        state: {
-          init: () => ({ query: "", activeIndex: 0 }),
-          apply(tr, prev) {
-            const meta = tr.getMeta(searchHighlightKey);
-            if (meta) return meta;
-            return prev;
-          },
-        },
-        props: {
-          decorations(state) {
-            const { query, activeIndex } = searchHighlightKey.getState(state)!;
-            if (!query) return DecorationSet.empty;
-            return buildDecorations(state.doc, query, activeIndex);
-          },
-        },
-      }),
-    ];
-  },
-});
 
 // ─── Editor CSS Variables Helper ───
 
@@ -101,9 +103,11 @@ function prefsToStyle(prefs: EditorPrefs): React.CSSProperties {
 
 interface RichTextEditorProps {
   content: string;
-  onChange: (html: string, text: string) => void;
+  onChange: (text: string) => void;
   placeholder?: string;
   editable?: boolean;
+  chapterNumber?: number;
+  fallbackTitle?: string;
 }
 
 export function RichTextEditor({
@@ -111,41 +115,20 @@ export function RichTextEditor({
   onChange,
   placeholder = "开始写作...",
   editable = true,
+  chapterNumber,
+  fallbackTitle,
 }: RichTextEditorProps) {
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [showFind, setShowFind] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
+  const [editorPrefs, setEditorPrefs] = useState<EditorPrefs>({});
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Find/replace state
+  const [findQuery, setFindQuery] = useState("");
   const [matchCount, setMatchCount] = useState(0);
   const [currentMatch, setCurrentMatch] = useState(0);
-  const [editorPrefs, setEditorPrefs] = useState<EditorPrefs>({});
-  const searchQueryRef = useRef("");
-
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [2, 3] },
-      }),
-      Placeholder.configure({
-        placeholder,
-      }),
-      CharacterCount,
-      SearchHighlight,
-    ],
-    content,
-    editable,
-    editorProps: {
-      attributes: {
-        class:
-          "prose prose-sm max-w-none focus:outline-none min-h-[400px] px-6 py-4 text-gray-800 leading-relaxed editor-content",
-      },
-    },
-    onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      const text = editor.getText();
-      onChange(html, text);
-      refreshSearch(editor);
-    },
-    immediatelyRender: false,
-  });
+  const matchPositionsRef = useRef<number[]>([]);
 
   // Load editor prefs on mount
   useEffect(() => {
@@ -159,119 +142,114 @@ export function RichTextEditor({
     setEditorPrefs(prefs);
   }, []);
 
-  const refreshSearch = useCallback((ed: Editor) => {
-    const q = searchQueryRef.current;
-    if (!q || !ed) return;
-    const positions = findTextPositions(ed.state.doc, q);
-    setMatchCount(positions.length);
-    if (positions.length === 0) {
-      setCurrentMatch(0);
-      return;
-    }
-    setCurrentMatch((prev) => Math.min(prev, positions.length - 1));
-    ed.view.dispatch(
-      ed.state.tr.setMeta(searchHighlightKey, {
-        query: q,
-        activeIndex: Math.min(currentMatch, positions.length - 1),
-      }),
-    );
-  }, [currentMatch]);
+  // ─── Find/Replace on raw text ───
+
+  const findAllPositions = useCallback(
+    (query: string): number[] => {
+      if (!query || !textareaRef.current) return [];
+      const text = textareaRef.current.value;
+      const positions: number[] = [];
+      const lower = text.toLowerCase();
+      const lowerQ = query.toLowerCase();
+      let idx = lower.indexOf(lowerQ);
+      while (idx !== -1) {
+        positions.push(idx);
+        idx = lower.indexOf(lowerQ, idx + 1);
+      }
+      return positions;
+    },
+    [],
+  );
+
+  const scrollToMatch = useCallback((pos: number) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(pos, pos + findQuery.length);
+    // Scroll to the line containing this position
+    const before = ta.value.substring(0, pos);
+    const lineIdx = before.split("\n").length - 1;
+    const lineHeight = Number.parseFloat(getComputedStyle(ta).lineHeight) || 20;
+    ta.scrollTop = Math.max(0, lineIdx * lineHeight - ta.clientHeight / 2);
+  }, [findQuery.length]);
 
   const handleSearch = useCallback(
     (query: string) => {
-      searchQueryRef.current = query;
-      if (!editor) return 0;
-      const positions = findTextPositions(editor.state.doc, query);
+      setFindQuery(query);
+      const positions = findAllPositions(query);
+      matchPositionsRef.current = positions;
       setMatchCount(positions.length);
       setCurrentMatch(0);
-      editor.view.dispatch(
-        editor.state.tr.setMeta(searchHighlightKey, { query, activeIndex: 0 }),
-      );
       if (positions.length > 0) {
-        scrollToMatch(editor, positions[0].from);
+        scrollToMatch(positions[0]);
       }
       return positions.length;
     },
-    [editor],
+    [findAllPositions, scrollToMatch],
   );
 
-  const scrollToMatch = (ed: Editor, pos: number) => {
-    const $pos = ed.state.doc.resolve(pos);
-    ed.view.dispatch(ed.state.tr.setSelection(TextSelection.near($pos)));
-    ed.commands.scrollIntoView();
-  };
-
   const handleNext = useCallback(() => {
-    if (!editor) return;
-    const q = searchQueryRef.current;
-    const positions = findTextPositions(editor.state.doc, q);
+    const positions = matchPositionsRef.current;
     if (positions.length === 0) return;
     const next = (currentMatch + 1) % positions.length;
     setCurrentMatch(next);
-    editor.view.dispatch(
-      editor.state.tr.setMeta(searchHighlightKey, { query: q, activeIndex: next }),
-    );
-    scrollToMatch(editor, positions[next].from);
-  }, [editor, currentMatch]);
+    scrollToMatch(positions[next]);
+  }, [currentMatch, scrollToMatch]);
 
   const handlePrev = useCallback(() => {
-    if (!editor) return;
-    const q = searchQueryRef.current;
-    const positions = findTextPositions(editor.state.doc, q);
+    const positions = matchPositionsRef.current;
     if (positions.length === 0) return;
-    const prev = (currentMatch - 1 + positions.length) % positions.length;
+    const prev =
+      (currentMatch - 1 + positions.length) % positions.length;
     setCurrentMatch(prev);
-    editor.view.dispatch(
-      editor.state.tr.setMeta(searchHighlightKey, { query: q, activeIndex: prev }),
-    );
-    scrollToMatch(editor, positions[prev].from);
-  }, [editor, currentMatch]);
+    scrollToMatch(positions[prev]);
+  }, [currentMatch, scrollToMatch]);
 
   const handleReplace = useCallback(
     (query: string, replacement: string) => {
-      if (!editor) return;
-      const positions = findTextPositions(editor.state.doc, query);
+      const positions = matchPositionsRef.current;
       if (positions.length === 0) return;
       const pos = positions[currentMatch] || positions[0];
-      const tr = editor.state.tr.insertText(replacement, pos.from, pos.to);
-      editor.view.dispatch(tr);
-      setTimeout(() => handleSearch(query), 0);
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const before = ta.value.substring(0, pos);
+      const after = ta.value.substring(pos + query.length);
+      const newText = before + replacement + after;
+      onChange(newText);
+      // Refresh positions after React re-render
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.value = newText;
+          handleSearch(findQuery || query);
+        }
+      }, 0);
     },
-    [editor, currentMatch, handleSearch],
+    [currentMatch, onChange, handleSearch, findQuery],
   );
 
   const handleReplaceAll = useCallback(
     (query: string, replacement: string) => {
-      if (!editor) return;
-      const positions = findTextPositions(editor.state.doc, query);
-      if (positions.length === 0) return;
-      let tr = editor.state.tr;
-      for (let i = positions.length - 1; i >= 0; i--) {
-        tr = tr.insertText(replacement, positions[i].from, positions[i].to);
-      }
-      editor.view.dispatch(tr);
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const newText = ta.value.split(query).join(replacement);
+      onChange(newText);
       setMatchCount(0);
       setCurrentMatch(0);
-      searchQueryRef.current = "";
-      editor.view.dispatch(
-        editor.state.tr.setMeta(searchHighlightKey, { query: "", activeIndex: 0 }),
-      );
+      matchPositionsRef.current = [];
+      setFindQuery("");
     },
-    [editor],
+    [onChange],
   );
 
   const handleCloseFind = useCallback(() => {
     setShowFind(false);
-    searchQueryRef.current = "";
+    setFindQuery("");
     setMatchCount(0);
     setCurrentMatch(0);
-    if (editor) {
-      editor.view.dispatch(
-        editor.state.tr.setMeta(searchHighlightKey, { query: "", activeIndex: 0 }),
-      );
-    }
-  }, [editor]);
+    matchPositionsRef.current = [];
+  }, []);
 
+  // Cmd/Ctrl+F for find
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
@@ -287,113 +265,117 @@ export function RichTextEditor({
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  if (!editor) return null;
+  // ─── Sync external content into textarea ───
 
-  const MenuBar = () => (
-    <div className="flex items-center gap-1 px-4 py-1.5 border-b border-gray-200 bg-gray-50 flex-wrap">
-      <button
-        onClick={() => editor.chain().focus().toggleBold().run()}
-        className={`p-1.5 rounded ${editor.isActive("bold") ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="粗体"
-      >
-        <Bold size={14} />
-      </button>
-      <button
-        onClick={() => editor.chain().focus().toggleItalic().run()}
-        className={`p-1.5 rounded ${editor.isActive("italic") ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="斜体"
-      >
-        <Italic size={14} />
-      </button>
-      <button
-        onClick={() => editor.chain().focus().toggleStrike().run()}
-        className={`p-1.5 rounded ${editor.isActive("strike") ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="删除线"
-      >
-        <Strikethrough size={14} />
-      </button>
-      <div className="w-px h-4 bg-gray-300 mx-1" />
-      <button
-        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-        className={`p-1.5 rounded ${editor.isActive("heading", { level: 2 }) ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="标题"
-      >
-        <Heading2 size={14} />
-      </button>
-      <button
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
-        className={`p-1.5 rounded ${editor.isActive("bulletList") ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="无序列表"
-      >
-        <List size={14} />
-      </button>
-      <button
-        onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        className={`p-1.5 rounded ${editor.isActive("orderedList") ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="有序列表"
-      >
-        <ListOrdered size={14} />
-      </button>
-      <button
-        onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        className={`p-1.5 rounded ${editor.isActive("blockquote") ? "bg-indigo-100 text-indigo-700" : "hover:bg-gray-200 text-gray-600"}`}
-        title="引用"
-      >
-        <Quote size={14} />
-      </button>
-      <div className="w-px h-4 bg-gray-300 mx-1" />
-      <button
-        onClick={() => editor.chain().focus().undo().run()}
-        disabled={!editor.can().undo()}
-        className="p-1.5 rounded hover:bg-gray-200 text-gray-600 disabled:opacity-30"
-        title="撤销"
-      >
-        <Undo size={14} />
-      </button>
-      <button
-        onClick={() => editor.chain().focus().redo().run()}
-        disabled={!editor.can().redo()}
-        className="p-1.5 rounded hover:bg-gray-200 text-gray-600 disabled:opacity-30"
-        title="重做"
-      >
-        <Redo size={14} />
-      </button>
-      <div className="flex-1" />
-      <div className="relative">
-        <button
-          onClick={() => setShowPrefs(!showPrefs)}
-          className={`p-1.5 rounded hover:bg-gray-200 text-gray-600 ${showPrefs ? "bg-gray-200" : ""}`}
-          title="编辑器偏好"
-        >
-          <Settings2 size={14} />
-        </button>
-        <EditorPrefsPanel
-          visible={showPrefs}
-          onClose={() => setShowPrefs(false)}
-          onApply={handleApplyPrefs}
-        />
-      </div>
-      <button
-        onClick={() => setShowFind(true)}
-        className="p-1.5 rounded hover:bg-gray-200 text-gray-600"
-        title="查找替换 (Ctrl/Cmd+F)"
-      >
-        <Search size={14} />
-      </button>
-      <span className="text-xs text-gray-400">{editor.storage.characterCount.characters()} 字</span>
-    </div>
-  );
+  const lastExternalContent = useRef(content);
+  useEffect(() => {
+    if (content !== lastExternalContent.current && textareaRef.current) {
+      lastExternalContent.current = content;
+      textareaRef.current.value = content;
+    }
+  }, [content]);
+
+  // ─── Content parsing for preview ───
+
+  const { title: parsedTitle, body } = parseContent(content);
+  const displayTitle = parsedTitle || fallbackTitle || (chapterNumber ? `第${chapterNumber}章` : "");
+  const paragraphs = renderParagraphs(body);
+  const charCount = [...body].length;
+  // DEBUG: trace paragraph splitting
+  console.log("[Editor] content len:", content.length, "\\n\\n count:", (content.match(/\n\n/g) || []).length, "\\n count:", (content.match(/\n/g) || []).length, "paragraphs:", paragraphs.length);
+  const readTimeMin = Math.max(1, Math.ceil(charCount / 500));
+
+  // ─── Editor prefs for preview styling ───
+
+  const fontFamily = editorPrefs.font_family
+    ? `font-family: var(--editor-font-family, ${editorPrefs.font_family});`
+    : "";
+  const fontSize = editorPrefs.font_size
+    ? `font-size: var(--editor-font-size, ${editorPrefs.font_size}px);`
+    : "";
+  const lineHeight = editorPrefs.line_spacing
+    ? `line-height: var(--editor-line-spacing, ${editorPrefs.line_spacing});`
+    : "";
+  const paraSpacing = editorPrefs.paragraph_spacing
+    ? `margin-bottom: var(--editor-paragraph-spacing, ${editorPrefs.paragraph_spacing}em);`
+    : "";
+  const marginWidth = editorPrefs.margin_width
+    ? (() => {
+        const widths: Record<string, string> = {
+          narrow: "2rem",
+          medium: "4rem",
+          wide: "6rem",
+        };
+        return `padding-left: var(--editor-margin-width, ${widths[editorPrefs.margin_width] ?? "4rem"});
+padding-right: var(--editor-margin-width, ${widths[editorPrefs.margin_width] ?? "4rem"});`;
+      })()
+    : "";
 
   const editorStyle = prefsToStyle(editorPrefs);
-  const fontVar = editorPrefs.font_family ? `font-family: var(--editor-font-family, ${editorPrefs.font_family});` : "";
-  const sizeVar = editorPrefs.font_size ? `font-size: var(--editor-font-size, ${editorPrefs.font_size}px);` : "";
-  const lineVar = editorPrefs.line_spacing ? `line-height: var(--editor-line-spacing, ${editorPrefs.line_spacing});` : "";
-  const paraVar = editorPrefs.paragraph_spacing ? `margin-bottom: var(--editor-paragraph-spacing, ${editorPrefs.paragraph_spacing}em);` : "";
-  const marginVar = editorPrefs.margin_width ? `padding-left: var(--editor-margin-width, 4rem); padding-right: var(--editor-margin-width, 4rem);` : "";
 
   return (
     <div className="flex flex-col h-full" style={editorStyle}>
-      {editable && <MenuBar />}
+      {/* Toolbar */}
+      {editable && (
+        <div className="flex items-center gap-1 px-4 py-1.5 border-b border-gray-200 bg-gray-50 flex-wrap">
+          {/* Edit / Preview toggle */}
+          <div className="flex items-center bg-gray-200 rounded-lg p-0.5">
+            <button
+              onClick={() => setMode("edit")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                mode === "edit"
+                  ? "bg-white text-gray-800 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              title="编辑"
+            >
+              <Pencil size={13} />
+              <span>编辑</span>
+            </button>
+            <button
+              onClick={() => setMode("preview")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                mode === "preview"
+                  ? "bg-white text-gray-800 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+              title="预览"
+            >
+              <Eye size={13} />
+              <span>预览</span>
+            </button>
+          </div>
+
+          <div className="flex-1" />
+
+          <div className="relative">
+            <button
+              onClick={() => setShowPrefs(!showPrefs)}
+              className={`p-1.5 rounded hover:bg-gray-200 text-gray-600 ${
+                showPrefs ? "bg-gray-200" : ""
+              }`}
+              title="编辑器偏好"
+            >
+              <Settings2 size={14} />
+            </button>
+            <EditorPrefsPanel
+              visible={showPrefs}
+              onClose={() => setShowPrefs(false)}
+              onApply={handleApplyPrefs}
+            />
+          </div>
+          <button
+            onClick={() => setShowFind(true)}
+            className="p-1.5 rounded hover:bg-gray-200 text-gray-600"
+            title="查找替换 (Ctrl/Cmd+F)"
+          >
+            <Search size={14} />
+          </button>
+          <span className="text-xs text-gray-400">{charCount} 字</span>
+        </div>
+      )}
+
+      {/* Find/Replace bar */}
       <FindReplaceBar
         visible={showFind}
         onClose={handleCloseFind}
@@ -405,10 +387,84 @@ export function RichTextEditor({
         matchCount={matchCount}
         currentMatch={currentMatch}
       />
-      <div className="flex-1 overflow-auto">
-        <style>{`.editor-content { ${fontVar} ${sizeVar} ${lineVar} } .editor-content p { ${paraVar} } .editor-content .ProseMirror { ${marginVar} }`}</style>
-        <EditorContent editor={editor} />
-      </div>
+
+      {/* Edit Mode — textarea */}
+      {mode === "edit" && (
+        <div className="flex-1 overflow-hidden">
+          <textarea
+            ref={textareaRef}
+            defaultValue={content}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            className="w-full h-full bg-transparent font-serif text-lg leading-[1.8] text-gray-800 focus:outline-none resize-none p-6 md:p-12"
+            style={{ fontFamily: "var(--editor-font-family, Georgia, 'Noto Serif SC', serif)" }}
+          />
+        </div>
+      )}
+
+      {/* Preview Mode — inkos-style paper sheet */}
+      {mode === "preview" && (
+        <div className="flex-1 overflow-auto bg-amber-50/30">
+          <style>{`
+            .preview-content { ${fontFamily} ${fontSize} ${lineHeight} }
+            .preview-content p { ${paraSpacing} }
+            .preview-content .paper-sheet { ${marginWidth} }
+          `}</style>
+
+          <div className="max-w-4xl mx-auto py-8 md:py-16 px-4">
+            <div className="paper-sheet preview-content bg-white rounded-2xl p-8 md:p-16 lg:p-24 shadow-2xl shadow-primary/5 min-h-[75vh] relative overflow-hidden">
+              {/* Paper lines decoration */}
+              <div className="absolute top-0 left-8 w-px h-full bg-primary/5 hidden md:block" />
+              <div className="absolute top-0 right-8 w-px h-full bg-primary/5 hidden md:block" />
+
+              <header className="mb-16 text-center">
+                <div className="flex items-center justify-center gap-2 text-gray-300 mb-8 select-none">
+                  <div className="h-px w-12 bg-gray-200" />
+                  <BookOpen size={20} />
+                  <div className="h-px w-12 bg-gray-200" />
+                </div>
+                {displayTitle && (
+                  <h1 className="text-4xl md:text-5xl font-serif font-medium italic text-gray-800 tracking-tight leading-tight">
+                    {displayTitle}
+                  </h1>
+                )}
+                {!displayTitle && paragraphs.length === 0 && (
+                  <p className="text-gray-400 italic text-lg">暂无内容</p>
+                )}
+              </header>
+
+              <article className="max-w-none">
+                {paragraphs.map((para, i) => (
+                  <p
+                    key={i}
+                    className="font-serif text-lg md:text-xl leading-[1.8] text-gray-800/90 mb-8 first-letter:text-2xl first-letter:font-bold first-letter:text-primary/40"
+                  >
+                    {para}
+                  </p>
+                ))}
+              </article>
+
+              {paragraphs.length > 0 && (
+                <footer className="mt-24 pt-12 border-t border-gray-100 flex flex-col items-center gap-6 text-center">
+                  <div className="flex items-center gap-4 text-xs font-medium text-gray-400">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-50">
+                      <Type size={14} className="text-primary/60" />
+                      <span>{charCount.toLocaleString()} 字</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-50">
+                      <Clock size={14} className="text-primary/60" />
+                      <span>约 {readTimeMin} 分钟</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-300 font-bold">
+                    — 章节结束 —
+                  </p>
+                </footer>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

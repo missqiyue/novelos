@@ -109,10 +109,13 @@ pub struct CompilerRuleDescription {
 
 pub fn get_compiler_rule_descriptions() -> Vec<CompilerRuleDescription> {
     let passes = default_passes();
-    passes.iter().map(|p| CompilerRuleDescription {
-        checker_name: p.name().to_string(),
-        description: p.description().to_string(),
-    }).collect()
+    passes
+        .iter()
+        .map(|p| CompilerRuleDescription {
+            checker_name: p.name().to_string(),
+            description: p.description().to_string(),
+        })
+        .collect()
 }
 
 // ─── Default pass registry ───
@@ -135,7 +138,10 @@ fn default_passes() -> Vec<Box<dyn CompilePass>> {
 /// Find the paragraph index (0-based) where a search string first appears.
 /// Paragraphs are split on double-newline; empty paragraphs are skipped.
 pub fn find_paragraph_index(draft_text: &str, search: &str) -> Option<usize> {
-    let paragraphs: Vec<&str> = draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    let paragraphs: Vec<&str> = draft_text
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
     for (i, para) in paragraphs.iter().enumerate() {
         if para.contains(search) {
             return Some(i);
@@ -146,7 +152,10 @@ pub fn find_paragraph_index(draft_text: &str, search: &str) -> Option<usize> {
 
 /// Extract a specific paragraph by 0-based index.
 pub fn get_paragraph_by_index(draft_text: &str, index: usize) -> Option<String> {
-    let paragraphs: Vec<&str> = draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    let paragraphs: Vec<&str> = draft_text
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
     paragraphs.get(index).map(|s| s.to_string())
 }
 
@@ -155,38 +164,52 @@ pub fn run_compiler(ctx: &CompileContext) -> CompileResult {
     run_compiler_with_passes(ctx, &passes)
 }
 
-pub fn run_compiler_with_passes(ctx: &CompileContext, passes: &[Box<dyn CompilePass>]) -> CompileResult {
+pub fn run_compiler_with_passes(
+    ctx: &CompileContext,
+    passes: &[Box<dyn CompilePass>],
+) -> CompileResult {
     let mut issues: Vec<CompileIssue> = Vec::new();
 
     let word_count = ctx.draft_text.chars().count();
-    let paragraphs: Vec<&str> = ctx.draft_text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    let paragraphs: Vec<&str> = ctx
+        .draft_text
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
     let paragraph_count = paragraphs.len();
     let dialogue_markers = (ctx.draft_text.matches('"').count()
         + ctx.draft_text.matches('"').count()
         + ctx.draft_text.matches('「').count()
-        + ctx.draft_text.matches('」').count()) / 2;
+        + ctx.draft_text.matches('」').count())
+        / 2;
 
     for pass in passes {
         issues.extend(pass.check(ctx));
     }
 
     // Derive stats from collected issues
-    let hard_rules_violated = issues.iter()
+    let hard_rules_violated = issues
+        .iter()
         .filter(|i| i.checker == "CanonChecker" && i.severity == "error")
         .count();
-    let soft_rules_violated = issues.iter()
+    let soft_rules_violated = issues
+        .iter()
         .filter(|i| i.checker == "CanonChecker" && i.severity == "warning")
         .count();
-    let characters_missing_soul = issues.iter()
+    let characters_missing_soul = issues
+        .iter()
         .filter(|i| i.checker == "CharacterChecker" && i.severity == "warning")
         .map(|i| i.location.clone().unwrap_or_default())
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>();
-    let foreshadow_overdue = issues.iter()
+    let foreshadow_overdue = issues
+        .iter()
         .filter(|i| i.checker == "ForeshadowChecker")
         .count();
 
-    let characters_referenced: Vec<String> = ctx.characters.iter()
+    let characters_referenced: Vec<String> = ctx
+        .characters
+        .iter()
         .filter(|ch| ctx.draft_text.contains(&ch.name))
         .map(|ch| ch.name.clone())
         .collect();
@@ -199,10 +222,16 @@ pub fn run_compiler_with_passes(ctx: &CompileContext, passes: &[Box<dyn CompileP
     // Generate suggestions
     let mut suggestions = Vec::new();
     if hard_rules_violated > 0 {
-        suggestions.push(format!("修复 {} 条硬规则违规后重新提交", hard_rules_violated));
+        suggestions.push(format!(
+            "修复 {} 条硬规则违规后重新提交",
+            hard_rules_violated
+        ));
     }
     if !characters_missing_soul.is_empty() {
-        suggestions.push(format!("为以下角色设置SOUL数据以启用口吻检查: {}", characters_missing_soul.join(", ")));
+        suggestions.push(format!(
+            "为以下角色设置SOUL数据以启用口吻检查: {}",
+            characters_missing_soul.join(", ")
+        ));
     }
     if word_count < ctx.min_words {
         suggestions.push("增加内容使字数达到建议范围".to_string());

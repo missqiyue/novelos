@@ -6,8 +6,11 @@ import type {
 } from "../tauri";
 
 export const orchestratorApi = {
-  async runPipeline(_chapterNumber: number): Promise<PipelineResult> {
+  async runPipeline(_chapterNumber: number, _runId?: string): Promise<PipelineResult> {
     throw new WebNotSupportedError("pipeline execution (requires backend LLM service)");
+  },
+  async getLatestPipelineResult(_chapterNumber: number): Promise<PipelineResult | null> {
+    return null;
   },
   async runBatchPipeline(_startChapter: number, _endChapter: number): Promise<PipelineResult[]> {
     throw new WebNotSupportedError("batch pipeline execution (requires backend LLM service)");

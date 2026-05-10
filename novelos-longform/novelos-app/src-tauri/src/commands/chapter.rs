@@ -1,5 +1,8 @@
+use crate::commands::llm::LlmState;
 use crate::db::DbState;
+use crate::llm::LlmService;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,7 +53,10 @@ pub struct ChapterVersionInfo {
 // --- Chapter Tasks ---
 
 #[tauri::command]
-pub fn list_chapter_tasks(db: State<'_, DbState>, volume_id: Option<String>) -> Result<Vec<ChapterTaskInfo>, String> {
+pub fn list_chapter_tasks(
+    db: State<'_, DbState>,
+    volume_id: Option<String>,
+) -> Result<Vec<ChapterTaskInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -58,22 +64,42 @@ pub fn list_chapter_tasks(db: State<'_, DbState>, volume_id: Option<String>) -> 
         "SELECT id, chapter_number, volume_id, arc_id, objective, must_progress, must_recall, must_avoid, required_hooks, required_context, ending_hook, status, created_at FROM chapter_tasks WHERE (?1 IS NULL OR volume_id = ?1) ORDER BY chapter_number"
     ).map_err(|e| e.to_string())?;
 
-    let items = stmt.query_map(rusqlite::params![volume_id], |row| {
-        Ok(ChapterTaskInfo {
-            id: row.get(0)?, chapter_number: row.get(1)?, volume_id: row.get(2)?, arc_id: row.get(3)?,
-            objective: row.get(4)?, must_progress: row.get(5)?, must_recall: row.get(6)?, must_avoid: row.get(7)?,
-            required_hooks: row.get(8)?, required_context: row.get(9)?, ending_hook: row.get(10)?,
-            status: row.get(11)?, created_at: row.get(12)?,
+    let items = stmt
+        .query_map(rusqlite::params![volume_id], |row| {
+            Ok(ChapterTaskInfo {
+                id: row.get(0)?,
+                chapter_number: row.get(1)?,
+                volume_id: row.get(2)?,
+                arc_id: row.get(3)?,
+                objective: row.get(4)?,
+                must_progress: row.get(5)?,
+                must_recall: row.get(6)?,
+                must_avoid: row.get(7)?,
+                required_hooks: row.get(8)?,
+                required_context: row.get(9)?,
+                ending_hook: row.get(10)?,
+                status: row.get(11)?,
+                created_at: row.get(12)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(items)
 }
 
 #[tauri::command]
-pub fn create_chapter_task(db: State<'_, DbState>, chapter_number: i64, objective: String, volume_id: Option<String>, arc_id: Option<String>, must_progress: Option<String>, must_recall: Option<String>, must_avoid: Option<String>) -> Result<ChapterTaskInfo, String> {
+pub fn create_chapter_task(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    objective: String,
+    volume_id: Option<String>,
+    arc_id: Option<String>,
+    must_progress: Option<String>,
+    must_recall: Option<String>,
+    must_avoid: Option<String>,
+) -> Result<ChapterTaskInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -118,9 +144,18 @@ pub fn list_chapters(db: State<'_, DbState>) -> Result<Vec<ChapterInfo>, String>
     let items = stmt
         .query_map([], |row| {
             Ok(ChapterInfo {
-                id: row.get(0)?, chapter_number: row.get(1)?, title: row.get(2)?, status: row.get(3)?,
-                draft_text: row.get(4)?, final_text: row.get(5)?, word_count: row.get(6)?, task_id: row.get(7)?,
-                compiler_status: row.get(8)?, review_status: row.get(9)?, created_at: row.get(10)?, updated_at: row.get(11)?,
+                id: row.get(0)?,
+                chapter_number: row.get(1)?,
+                title: row.get(2)?,
+                status: row.get(3)?,
+                draft_text: row.get(4)?,
+                final_text: row.get(5)?,
+                word_count: row.get(6)?,
+                task_id: row.get(7)?,
+                compiler_status: row.get(8)?,
+                review_status: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -148,7 +183,12 @@ pub fn get_chapter(db: State<'_, DbState>, chapter_number: i64) -> Result<Chapte
 }
 
 #[tauri::command]
-pub fn create_chapter(db: State<'_, DbState>, chapter_number: i64, title: Option<String>, task_id: Option<String>) -> Result<ChapterInfo, String> {
+pub fn create_chapter(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    title: Option<String>,
+    task_id: Option<String>,
+) -> Result<ChapterInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -179,61 +219,249 @@ pub fn create_chapter(db: State<'_, DbState>, chapter_number: i64, title: Option
 }
 
 #[tauri::command]
-pub fn update_chapter_draft(
+pub async fn update_chapter_draft(
     db: State<'_, DbState>,
+    llm: State<'_, LlmState>,
     chapter_number: i64,
     draft_text: String,
     skip_version: Option<bool>,
 ) -> Result<ChapterInfo, String> {
-    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
-    let conn = project_conn.as_ref().ok_or("No project open")?;
-    let now = chrono::Utc::now().to_rfc3339();
+    {
+        let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = project_conn.as_ref().ok_or("No project open")?;
+        let now = chrono::Utc::now().to_rfc3339();
 
-    let word_count = draft_text.chars().count() as i64;
+        let word_count = draft_text.chars().count() as i64;
 
-    conn.execute(
-        "UPDATE chapters SET draft_text = ?1, word_count = ?2, status = 'drafting', updated_at = ?3 WHERE chapter_number = ?4",
-        rusqlite::params![draft_text, word_count, now, chapter_number],
-    )
-    .map_err(|e| e.to_string())?;
-
-    // Only create a version record for manual saves (not auto-save)
-    if !skip_version.unwrap_or(false) {
-        let chapter_id: String = conn
-            .query_row("SELECT id FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
-            .map_err(|e| e.to_string())?;
-
-        let next_version: i64 = conn
-            .query_row("SELECT COALESCE(MAX(version_no), 0) + 1 FROM chapter_versions WHERE chapter_id = ?1", [&chapter_id], |r| r.get(0))
-            .unwrap_or(1);
-
-        let version_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO chapter_versions (id, chapter_id, version_no, content_type, content, created_by, created_at) VALUES (?1, ?2, ?3, 'draft', ?4, 'user', ?5)",
-            rusqlite::params![version_id, chapter_id, next_version, draft_text, now],
+            "UPDATE chapters SET draft_text = ?1, word_count = ?2, status = 'drafting', updated_at = ?3 WHERE chapter_number = ?4",
+            rusqlite::params![draft_text, word_count, now, chapter_number],
         )
         .map_err(|e| e.to_string())?;
+
+        // Only create a version record for manual saves (not auto-save)
+        if !skip_version.unwrap_or(false) {
+            let chapter_id: String = conn
+                .query_row(
+                    "SELECT id FROM chapters WHERE chapter_number = ?1",
+                    [chapter_number],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+
+            let next_version: i64 = conn
+                .query_row("SELECT COALESCE(MAX(version_no), 0) + 1 FROM chapter_versions WHERE chapter_id = ?1", [&chapter_id], |r| r.get(0))
+                .unwrap_or(1);
+
+            let version_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO chapter_versions (id, chapter_id, version_no, content_type, content, created_by, created_at) VALUES (?1, ?2, ?3, 'draft', ?4, 'user', ?5)",
+                rusqlite::params![version_id, chapter_id, next_version, draft_text, now],
+            )
+            .map_err(|e| e.to_string())?;
+        }
     }
 
+    if let Err(e) = reindex_chapter_rag(&db, &llm, chapter_number, &draft_text).await {
+        log::warn!(
+            "RAG reindex failed for chapter {} (draft already saved): {}",
+            chapter_number,
+            e
+        );
+    }
+
+    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = project_conn.as_ref().ok_or("No project open")?;
     get_chapter_inner(conn, chapter_number)
 }
 
 #[tauri::command]
-pub fn finalize_chapter(db: State<'_, DbState>, chapter_number: i64) -> Result<ChapterInfo, String> {
-    let project_id;
+pub async fn finalize_chapter(
+    db: State<'_, DbState>,
+    llm: State<'_, LlmState>,
+    chapter_number: i64,
+) -> Result<ChapterInfo, String> {
+    let (project_id, final_text);
     {
         let project_conn = db.project.lock().map_err(|e| e.to_string())?;
         let conn = project_conn.as_ref().ok_or("No project open")?;
         project_id = db.current_project_id().unwrap_or_default();
         crate::db::transactions::finalize_chapter_transaction(conn, &project_id, chapter_number)?;
+        final_text = conn
+            .query_row(
+                "SELECT COALESCE(final_text, draft_text, '') FROM chapters WHERE chapter_number = ?1",
+                [chapter_number],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if let Err(e) =
+            create_post_finalize_confirmation_queue(conn, &project_id, chapter_number, &final_text)
+        {
+            log::warn!(
+                "Failed to create post-finalize proposals for chapter {}: {}",
+                chapter_number,
+                e
+            );
+        }
     }
+
+    reindex_chapter_rag(&db, &llm, chapter_number, &final_text).await?;
 
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     get_chapter_inner(conn, chapter_number)
 }
 
-fn get_chapter_inner(conn: &rusqlite::Connection, chapter_number: i64) -> Result<ChapterInfo, String> {
+fn create_post_finalize_confirmation_queue(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    chapter_number: i64,
+    final_text: &str,
+) -> Result<(), String> {
+    let target_ref = chapter_number.to_string();
+    let existing: i64 = conn
+        .query_row(
+            "SELECT COUNT(*)
+             FROM retcon_requests
+             WHERE request_type = 'post_finalize_proposal'
+               AND target_type = 'chapter'
+               AND target_ref = ?1
+               AND status = 'pending'",
+            [&target_ref],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if existing > 0 {
+        return Ok(());
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let proposal_id = uuid::Uuid::new_v4().to_string();
+    let impact_summary =
+        serde_json::to_string(&build_post_finalize_proposal_summary(conn, chapter_number, final_text)?)
+            .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO retcon_requests (
+            id, project_id, request_type, target_type, target_ref, reason,
+            impact_summary, risk_level, strategy, status, created_at, updated_at
+        ) VALUES (?1, ?2, 'post_finalize_proposal', 'chapter', ?3, ?4, ?5, 'low', ?6, 'pending', ?7, ?8)",
+        rusqlite::params![
+            proposal_id,
+            project_id,
+            target_ref,
+            format!("第{}章已定稿，请确认是否沉淀章节快照、时间线、伏笔、角色状态和正典事实。", chapter_number),
+            impact_summary,
+            "manual_confirmation_only",
+            now,
+            now,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO notifications (
+            id, project_id, type, severity, message, related_entity_type,
+            related_entity_id, is_read, created_at
+        ) VALUES (?1, ?2, 'post_finalize_proposal', 'info', ?3, 'chapter', ?4, 0, ?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            project_id,
+            format!("第{}章定稿后沉淀提案已生成，等待确认。", chapter_number),
+            target_ref,
+            now,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+fn build_post_finalize_proposal_summary(
+    conn: &rusqlite::Connection,
+    chapter_number: i64,
+    final_text: &str,
+) -> Result<serde_json::Value, String> {
+    let mut foreshadow_stmt = conn
+        .prepare(
+            "SELECT id, title, status
+             FROM foreshadow_items
+             WHERE status IN ('planted', 'active', 'pending', 'open', 'pending_payoff')
+               AND seed_chapter <= ?1
+             ORDER BY COALESCE(importance, 0) DESC, seed_chapter ASC
+             LIMIT 8",
+        )
+        .map_err(|e| e.to_string())?;
+    let foreshadows = foreshadow_stmt
+        .query_map([chapter_number], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "title": row.get::<_, String>(1)?,
+                "status": row.get::<_, String>(2)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|row| row.ok())
+        .collect::<Vec<_>>();
+
+    let mut character_stmt = conn
+        .prepare("SELECT id, name FROM characters WHERE status = 'active' ORDER BY name LIMIT 200")
+        .map_err(|e| e.to_string())?;
+    let characters = character_stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|row| row.ok())
+        .filter(|(_, name)| final_text.contains(name))
+        .take(12)
+        .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+        .collect::<Vec<_>>();
+
+    let event_seed = final_text
+        .split(|c: char| c == '。' || c == '！' || c == '？' || c == '\n')
+        .map(str::trim)
+        .find(|s| s.chars().count() >= 12)
+        .unwrap_or("")
+        .chars()
+        .take(120)
+        .collect::<String>();
+
+    Ok(serde_json::json!({
+        "chapter_number": chapter_number,
+        "status": "pending_confirmation",
+        "snapshot": {
+            "created": true,
+            "note": "章节快照已随定稿事务生成"
+        },
+        "proposed_actions": [
+            {
+                "type": "timeline_node",
+                "label": "确认是否新增/修订时间线事件",
+                "suggested_summary": event_seed
+            },
+            {
+                "type": "foreshadow_update",
+                "label": "确认本章推进或回收的伏笔",
+                "candidates": foreshadows
+            },
+            {
+                "type": "character_state",
+                "label": "确认本章角色状态变化",
+                "candidates": characters
+            },
+            {
+                "type": "canon_fact",
+                "label": "确认本章是否产生新的正典事实",
+                "candidates": []
+            }
+        ],
+        "policy": "待人工确认后再写入正典、时间线、伏笔或角色账本"
+    }))
+}
+
+fn get_chapter_inner(
+    conn: &rusqlite::Connection,
+    chapter_number: i64,
+) -> Result<ChapterInfo, String> {
     conn.query_row(
         "SELECT id, chapter_number, title, status, draft_text, final_text, word_count, task_id, compiler_status, review_status, created_at, updated_at FROM chapters WHERE chapter_number = ?1",
         [chapter_number],
@@ -244,6 +472,147 @@ fn get_chapter_inner(conn: &rusqlite::Connection, chapter_number: i64) -> Result
         }),
     )
     .map_err(|e| e.to_string())
+}
+
+pub async fn sync_chapter_rag(
+    db: &DbState,
+    llm: &LlmState,
+    chapter_number: i64,
+) -> Result<(), String> {
+    let chapter_text = {
+        let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = project_conn.as_ref().ok_or("No project open")?;
+        let (status, draft_text, final_text): (String, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT status, draft_text, final_text FROM chapters WHERE chapter_number = ?1",
+                [chapter_number],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|e| e.to_string())?;
+
+        if status == "finalized" || status == "approved" || status == "archived" {
+            final_text.or(draft_text).unwrap_or_default()
+        } else {
+            draft_text.or(final_text).unwrap_or_default()
+        }
+    };
+
+    reindex_chapter_rag(db, llm, chapter_number, &chapter_text).await
+}
+
+async fn reindex_chapter_rag(
+    db: &DbState,
+    llm: &LlmState,
+    chapter_number: i64,
+    chapter_text: &str,
+) -> Result<(), String> {
+    let trimmed = chapter_text.trim();
+
+    if trimmed.is_empty() {
+        let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = project_conn.as_ref().ok_or("No project open")?;
+        conn.execute(
+            "DELETE FROM rag_chunks WHERE chapter_number = ?1",
+            rusqlite::params![chapter_number],
+        )
+        .map_err(|e| format!("Failed to clear empty chapter chunks: {}", e))?;
+        return Ok(());
+    }
+
+    let metadata = {
+        let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = project_conn.as_ref().ok_or("No project open")?;
+        build_rag_metadata(conn, chapter_number)?
+    };
+
+    let config = {
+        let service = llm.service.lock().map_err(|e| e.to_string())?;
+        service.config.clone()
+    };
+    let chunks = crate::rag::chunk_text(trimmed, 1024);
+    let mut chunk_embeddings = Vec::with_capacity(chunks.len());
+    for chunk in &chunks {
+        let svc = LlmService::new(config.clone());
+        let embedding = svc.embed(chunk).await.map_err(|e| e.to_string())?;
+        chunk_embeddings.push((chunk.clone(), embedding));
+    }
+
+    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = project_conn.as_ref().ok_or("No project open")?;
+    conn.execute(
+        "DELETE FROM rag_chunks WHERE chapter_number = ?1",
+        rusqlite::params![chapter_number],
+    )
+    .map_err(|e| format!("Failed to clear existing chunks: {}", e))?;
+
+    let characters = metadata.as_ref().and_then(|m| m.get("characters").cloned());
+    let pov = metadata.as_ref().and_then(|m| m.get("pov").cloned());
+    let foreshadows = metadata
+        .as_ref()
+        .and_then(|m| m.get("foreshadows").cloned());
+
+    for (idx, (chunk, embedding)) in chunk_embeddings.into_iter().enumerate() {
+        let blob = crate::rag::encode_embedding(&embedding);
+        conn.execute(
+            "INSERT INTO rag_chunks (chapter_number, chunk_index, chunk_text, embedding, characters, pov, foreshadows)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![chapter_number, idx as i64, chunk, blob, characters, pov, foreshadows],
+        )
+        .map_err(|e| format!("Failed to insert chunk: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn build_rag_metadata(
+    conn: &rusqlite::Connection,
+    chapter_number: i64,
+) -> Result<Option<HashMap<String, String>>, String> {
+    let mut metadata = HashMap::new();
+
+    let mut char_stmt = conn
+        .prepare(
+            "SELECT DISTINCT c.name
+             FROM character_states cs
+             JOIN characters c ON c.id = cs.character_id
+             WHERE cs.chapter_from <= ?1
+               AND (cs.chapter_to IS NULL OR cs.chapter_to >= ?1)
+               AND c.status = 'active'
+             ORDER BY c.name",
+        )
+        .map_err(|e| e.to_string())?;
+    let characters: Vec<String> = char_stmt
+        .query_map([chapter_number], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if !characters.is_empty() {
+        metadata.insert("characters".to_string(), characters.join(", "));
+    }
+
+    let mut fs_stmt = conn
+        .prepare(
+            "SELECT title
+             FROM foreshadow_items
+             WHERE seed_chapter <= ?1
+               AND (resolved_chapter IS NULL OR resolved_chapter >= ?1)
+               AND status IN ('planted', 'active', 'pending_payoff')",
+        )
+        .map_err(|e| e.to_string())?;
+    let foreshadows: Vec<String> = fs_stmt
+        .query_map([chapter_number], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if !foreshadows.is_empty() {
+        metadata.insert("foreshadows".to_string(), foreshadows.join(", "));
+    }
+
+    if metadata.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(metadata))
+    }
 }
 
 // --- Auto-recall hard rules (CAN-006) ---
@@ -259,7 +628,10 @@ pub struct RecalledContext {
 }
 
 #[tauri::command]
-pub fn recall_context_for_chapter(db: State<'_, DbState>, _chapter_number: i64) -> Result<RecalledContext, String> {
+pub fn recall_context_for_chapter(
+    db: State<'_, DbState>,
+    _chapter_number: i64,
+) -> Result<RecalledContext, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -267,44 +639,65 @@ pub fn recall_context_for_chapter(db: State<'_, DbState>, _chapter_number: i64) 
     let mut stmt = conn.prepare(
         "SELECT rule_name, content FROM canon_rules WHERE status = 'active' AND is_hard = 1 ORDER BY rule_name"
     ).map_err(|e| e.to_string())?;
-    let hard_rules: Vec<String> = stmt.query_map([], |row| {
-        let name: String = row.get(0)?;
-        let content: String = row.get(1)?;
-        Ok(format!("[硬规则] {}: {}", name, content))
-    }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let hard_rules: Vec<String> = stmt
+        .query_map([], |row| {
+            let name: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            Ok(format!("[硬规则] {}: {}", name, content))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     // Recall soft rules (style/guidance)
     let mut stmt = conn.prepare(
         "SELECT rule_name, content FROM canon_rules WHERE status = 'active' AND is_hard = 0 ORDER BY rule_name LIMIT 10"
     ).map_err(|e| e.to_string())?;
-    let soft_rules: Vec<String> = stmt.query_map([], |row| {
-        let name: String = row.get(0)?;
-        let content: String = row.get(1)?;
-        Ok(format!("[软规则] {}: {}", name, content))
-    }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let soft_rules: Vec<String> = stmt
+        .query_map([], |row| {
+            let name: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            Ok(format!("[软规则] {}: {}", name, content))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     // Recall active character states
     let mut stmt = conn.prepare(
         "SELECT c.name, cs.level_state, cs.emotion_state, cs.goal_state FROM characters c LEFT JOIN character_states cs ON cs.character_id = c.id WHERE c.status = 'active' LIMIT 15"
     ).map_err(|e| e.to_string())?;
-    let character_states: Vec<String> = stmt.query_map([], |row| {
-        let name: String = row.get(0)?;
-        let level: Option<String> = row.get(1)?;
-        let emotion: Option<String> = row.get(2)?;
-        let goal: Option<String> = row.get(3)?;
-        Ok(format!("{}: 等级={} 情绪={} 目标={}", name,
-            level.as_deref().unwrap_or("?"), emotion.as_deref().unwrap_or("?"), goal.as_deref().unwrap_or("?")))
-    }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let character_states: Vec<String> = stmt
+        .query_map([], |row| {
+            let name: String = row.get(0)?;
+            let level: Option<String> = row.get(1)?;
+            let emotion: Option<String> = row.get(2)?;
+            let goal: Option<String> = row.get(3)?;
+            Ok(format!(
+                "{}: 等级={} 情绪={} 目标={}",
+                name,
+                level.as_deref().unwrap_or("?"),
+                emotion.as_deref().unwrap_or("?"),
+                goal.as_deref().unwrap_or("?")
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     // Recall open foreshadows
     let mut stmt = conn.prepare(
         "SELECT title, seed_chapter FROM foreshadow_items WHERE status = 'planted' ORDER BY seed_chapter LIMIT 10"
     ).map_err(|e| e.to_string())?;
-    let open_foreshadows: Vec<String> = stmt.query_map([], |row| {
-        let title: String = row.get(0)?;
-        let seed: i64 = row.get(1)?;
-        Ok(format!("伏笔「{}」(埋于第{}章)", title, seed))
-    }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let open_foreshadows: Vec<String> = stmt
+        .query_map([], |row| {
+            let title: String = row.get(0)?;
+            let seed: i64 = row.get(1)?;
+            Ok(format!("伏笔「{}」(埋于第{}章)", title, seed))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     // Estimate tokens (1 token ≈ 2 Chinese chars ≈ 4 English chars)
     let total_chars: usize = hard_rules.iter().map(|s| s.len()).sum::<usize>()
@@ -336,7 +729,10 @@ pub struct ChapterSearchResult {
 }
 
 #[tauri::command]
-pub fn search_chapters(db: State<'_, DbState>, query: String) -> Result<Vec<ChapterSearchResult>, String> {
+pub fn search_chapters(
+    db: State<'_, DbState>,
+    query: String,
+) -> Result<Vec<ChapterSearchResult>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -349,29 +745,31 @@ pub fn search_chapters(db: State<'_, DbState>, query: String) -> Result<Vec<Chap
         "SELECT chapter_number, title, COALESCE(final_text, draft_text, ''), status, word_count FROM chapters WHERE final_text LIKE ?1 OR draft_text LIKE ?1 OR title LIKE ?1 ORDER BY chapter_number LIMIT 30"
     ).map_err(|e| e.to_string())?;
 
-    let items = stmt.query_map([&search], |row| {
-        let full_text: String = row.get(2)?;
-        let ch_num: i64 = row.get(0)?;
-        let query_lower = query.to_lowercase();
-        let text_lower = full_text.to_lowercase();
-        let pos = text_lower.find(&query_lower).unwrap_or(0);
-        let start = if pos > 30 { pos - 30 } else { 0 };
-        let end = (pos + query.len() + 80).min(full_text.len());
-        let snippet = if start > 0 { "..." } else { "" }.to_string()
-            + &full_text[start..end]
-            + if end < full_text.len() { "..." } else { "" };
+    let items = stmt
+        .query_map([&search], |row| {
+            let full_text: String = row.get(2)?;
+            let ch_num: i64 = row.get(0)?;
+            let query_lower = query.to_lowercase();
+            let text_lower = full_text.to_lowercase();
+            let pos = text_lower.find(&query_lower).unwrap_or(0);
+            let start = if pos > 30 { pos - 30 } else { 0 };
+            let end = (pos + query.len() + 80).min(full_text.len());
+            let snippet = if start > 0 { "..." } else { "" }.to_string()
+                + &full_text[start..end]
+                + if end < full_text.len() { "..." } else { "" };
 
-        Ok(ChapterSearchResult {
-            chapter_number: ch_num,
-            title: row.get(1)?,
-            snippet,
-            highlighted_snippet: None,
-            status: row.get(3)?,
-            word_count: row.get(4)?,
+            Ok(ChapterSearchResult {
+                chapter_number: ch_num,
+                title: row.get(1)?,
+                snippet,
+                highlighted_snippet: None,
+                status: row.get(3)?,
+                word_count: row.get(4)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(items)
 }
@@ -379,7 +777,10 @@ pub fn search_chapters(db: State<'_, DbState>, query: String) -> Result<Vec<Chap
 /// Search chapters with term highlighting in snippets.
 /// Same as search_chapters but wraps matching terms in <<HIGHLIGHT>>...<</HIGHLIGHT>> markers.
 #[tauri::command]
-pub fn search_chapters_with_highlights(db: State<'_, DbState>, query: String) -> Result<Vec<ChapterSearchResult>, String> {
+pub fn search_chapters_with_highlights(
+    db: State<'_, DbState>,
+    query: String,
+) -> Result<Vec<ChapterSearchResult>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -392,34 +793,36 @@ pub fn search_chapters_with_highlights(db: State<'_, DbState>, query: String) ->
         "SELECT chapter_number, title, COALESCE(final_text, draft_text, ''), status, word_count FROM chapters WHERE final_text LIKE ?1 OR draft_text LIKE ?1 OR title LIKE ?1 ORDER BY chapter_number LIMIT 30"
     ).map_err(|e| e.to_string())?;
 
-    let items = stmt.query_map([&search], |row| {
-        let full_text: String = row.get(2)?;
-        let ch_num: i64 = row.get(0)?;
-        let query_lower = query.to_lowercase();
-        let text_lower = full_text.to_lowercase();
+    let items = stmt
+        .query_map([&search], |row| {
+            let full_text: String = row.get(2)?;
+            let ch_num: i64 = row.get(0)?;
+            let query_lower = query.to_lowercase();
+            let text_lower = full_text.to_lowercase();
 
-        // Build plain snippet
-        let pos = text_lower.find(&query_lower).unwrap_or(0);
-        let start = if pos > 30 { pos - 30 } else { 0 };
-        let end = (pos + query.len() + 80).min(full_text.len());
-        let snippet = if start > 0 { "..." } else { "" }.to_string()
-            + &full_text[start..end]
-            + if end < full_text.len() { "..." } else { "" };
+            // Build plain snippet
+            let pos = text_lower.find(&query_lower).unwrap_or(0);
+            let start = if pos > 30 { pos - 30 } else { 0 };
+            let end = (pos + query.len() + 80).min(full_text.len());
+            let snippet = if start > 0 { "..." } else { "" }.to_string()
+                + &full_text[start..end]
+                + if end < full_text.len() { "..." } else { "" };
 
-        // Build highlighted version of the full text
-        let highlighted = highlight_terms(&full_text, &query);
+            // Build highlighted version of the full text
+            let highlighted = highlight_terms(&full_text, &query);
 
-        Ok(ChapterSearchResult {
-            chapter_number: ch_num,
-            title: row.get(1)?,
-            snippet,
-            highlighted_snippet: Some(highlighted),
-            status: row.get(3)?,
-            word_count: row.get(4)?,
+            Ok(ChapterSearchResult {
+                chapter_number: ch_num,
+                title: row.get(1)?,
+                snippet,
+                highlighted_snippet: Some(highlighted),
+                status: row.get(3)?,
+                word_count: row.get(4)?,
+            })
         })
-    }).map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(items)
 }
@@ -458,12 +861,24 @@ fn highlight_terms(text: &str, query: &str) -> String {
 
 const VALID_TRANSITIONS: &[(&str, &[&str])] = &[
     ("task_ready", &["drafting", "draft_generated"]),
-    ("drafting", &["draft_generated", "compile_failed", "task_ready"]),
-    ("draft_generated", &["reviewing", "compile_failed", "drafting", "approved"]),
-    ("reviewing", &["approved", "rewrite_required", "compile_failed"]),
+    (
+        "drafting",
+        &["draft_generated", "compile_failed", "task_ready"],
+    ),
+    (
+        "draft_generated",
+        &["reviewing", "compile_failed", "drafting", "approved"],
+    ),
+    (
+        "reviewing",
+        &["approved", "rewrite_required", "compile_failed"],
+    ),
     ("compile_failed", &["drafting", "task_ready"]),
     ("rewrite_required", &["drafting"]),
-    ("approved", &["finalized", "archived", "needs_revalidate", "drafting"]),
+    (
+        "approved",
+        &["finalized", "archived", "needs_revalidate", "drafting"],
+    ),
     ("finalized", &["archived", "needs_revalidate"]),
     ("archived", &["needs_revalidate"]),
     ("needs_revalidate", &["reviewing", "drafting"]),
@@ -478,13 +893,21 @@ fn is_valid_transition(from: &str, to: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn transition_chapter_state(db: State<'_, DbState>, chapter_number: i64, new_status: String) -> Result<ChapterInfo, String> {
+pub fn transition_chapter_state(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    new_status: String,
+) -> Result<ChapterInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
 
     let current_status: String = conn
-        .query_row("SELECT status FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
+        .query_row(
+            "SELECT status FROM chapters WHERE chapter_number = ?1",
+            [chapter_number],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("Chapter not found: {}", e))?;
 
     if !is_valid_transition(&current_status, &new_status) {
@@ -504,12 +927,19 @@ pub fn transition_chapter_state(db: State<'_, DbState>, chapter_number: i64, new
 }
 
 #[tauri::command]
-pub fn get_valid_transitions(db: State<'_, DbState>, chapter_number: i64) -> Result<Vec<String>, String> {
+pub fn get_valid_transitions(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+) -> Result<Vec<String>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
     let current_status: String = conn
-        .query_row("SELECT status FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
+        .query_row(
+            "SELECT status FROM chapters WHERE chapter_number = ?1",
+            [chapter_number],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("Chapter not found: {}", e))?;
 
     let transitions = VALID_TRANSITIONS
@@ -522,7 +952,11 @@ pub fn get_valid_transitions(db: State<'_, DbState>, chapter_number: i64) -> Res
 }
 
 #[tauri::command]
-pub fn set_compile_status(db: State<'_, DbState>, chapter_number: i64, compiler_status: String) -> Result<(), String> {
+pub fn set_compile_status(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    compiler_status: String,
+) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -537,7 +971,11 @@ pub fn set_compile_status(db: State<'_, DbState>, chapter_number: i64, compiler_
 }
 
 #[tauri::command]
-pub fn set_review_status(db: State<'_, DbState>, chapter_number: i64, review_status: String) -> Result<(), String> {
+pub fn set_review_status(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    review_status: String,
+) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -554,12 +992,19 @@ pub fn set_review_status(db: State<'_, DbState>, chapter_number: i64, review_sta
 // --- Chapter Versions ---
 
 #[tauri::command]
-pub fn list_chapter_versions(db: State<'_, DbState>, chapter_number: i64) -> Result<Vec<ChapterVersionInfo>, String> {
+pub fn list_chapter_versions(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+) -> Result<Vec<ChapterVersionInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
     let chapter_id: String = conn
-        .query_row("SELECT id FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM chapters WHERE chapter_number = ?1",
+            [chapter_number],
+            |r| r.get(0),
+        )
         .map_err(|e| e.to_string())?;
 
     let mut stmt = conn
@@ -569,8 +1014,14 @@ pub fn list_chapter_versions(db: State<'_, DbState>, chapter_number: i64) -> Res
     let items = stmt
         .query_map([&chapter_id], |row| {
             Ok(ChapterVersionInfo {
-                id: row.get(0)?, chapter_id: row.get(1)?, version_no: row.get(2)?, content_type: row.get(3)?,
-                content: row.get(4)?, diff_summary: row.get(5)?, created_by: row.get(6)?, created_at: row.get(7)?,
+                id: row.get(0)?,
+                chapter_id: row.get(1)?,
+                version_no: row.get(2)?,
+                content_type: row.get(3)?,
+                content: row.get(4)?,
+                diff_summary: row.get(5)?,
+                created_by: row.get(6)?,
+                created_at: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -581,31 +1032,48 @@ pub fn list_chapter_versions(db: State<'_, DbState>, chapter_number: i64) -> Res
 }
 
 #[tauri::command]
-pub fn rollback_chapter(db: State<'_, DbState>, chapter_number: i64, version_no: i64) -> Result<ChapterInfo, String> {
-    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
-    let conn = project_conn.as_ref().ok_or("No project open")?;
+pub async fn rollback_chapter(
+    db: State<'_, DbState>,
+    llm: State<'_, LlmState>,
+    chapter_number: i64,
+    version_no: i64,
+) -> Result<ChapterInfo, String> {
+    let content = {
+        let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+        let conn = project_conn.as_ref().ok_or("No project open")?;
 
-    let chapter_id: String = conn
-        .query_row("SELECT id FROM chapters WHERE chapter_number = ?1", [chapter_number], |r| r.get(0))
+        let chapter_id: String = conn
+            .query_row(
+                "SELECT id FROM chapters WHERE chapter_number = ?1",
+                [chapter_number],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM chapter_versions WHERE chapter_id = ?1 AND version_no = ?2",
+                rusqlite::params![chapter_id, version_no],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("Version {} not found: {}", version_no, e))?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let word_count = content.chars().count() as i64;
+
+        conn.execute(
+            "UPDATE chapters SET draft_text = ?1, word_count = ?2, updated_at = ?3 WHERE chapter_number = ?4",
+            rusqlite::params![content, word_count, now, chapter_number],
+        )
         .map_err(|e| e.to_string())?;
 
-    let content: String = conn
-        .query_row(
-            "SELECT content FROM chapter_versions WHERE chapter_id = ?1 AND version_no = ?2",
-            rusqlite::params![chapter_id, version_no],
-            |r| r.get(0),
-        )
-        .map_err(|e| format!("Version {} not found: {}", version_no, e))?;
+        content
+    };
 
-    let now = chrono::Utc::now().to_rfc3339();
-    let word_count = content.chars().count() as i64;
+    reindex_chapter_rag(&db, &llm, chapter_number, &content).await?;
 
-    conn.execute(
-        "UPDATE chapters SET draft_text = ?1, word_count = ?2, updated_at = ?3 WHERE chapter_number = ?4",
-        rusqlite::params![content, word_count, now, chapter_number],
-    )
-    .map_err(|e| e.to_string())?;
-
+    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = project_conn.as_ref().ok_or("No project open")?;
     get_chapter_inner(conn, chapter_number)
 }
 
@@ -640,10 +1108,19 @@ pub fn list_characters(db: State<'_, DbState>) -> Result<Vec<CharacterInfo>, Str
     let items = stmt
         .query_map([], |row| {
             Ok(CharacterInfo {
-                id: row.get(0)?, name: row.get(1)?, alias: row.get(2)?, role_type: row.get(3)?,
-                identity_core: row.get(4)?, persona_core: row.get(5)?, soul_template_id: row.get(6)?,
-                soul_json: row.get(7)?, taboo_rules: row.get(8)?, core_motivation: row.get(9)?,
-                status: row.get(10)?, created_at: row.get(11)?, updated_at: row.get(12)?,
+                id: row.get(0)?,
+                name: row.get(1)?,
+                alias: row.get(2)?,
+                role_type: row.get(3)?,
+                identity_core: row.get(4)?,
+                persona_core: row.get(5)?,
+                soul_template_id: row.get(6)?,
+                soul_json: row.get(7)?,
+                taboo_rules: row.get(8)?,
+                core_motivation: row.get(9)?,
+                status: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -654,7 +1131,12 @@ pub fn list_characters(db: State<'_, DbState>) -> Result<Vec<CharacterInfo>, Str
 }
 
 #[tauri::command]
-pub fn create_character(db: State<'_, DbState>, name: String, role_type: Option<String>, soul_json: Option<String>) -> Result<CharacterInfo, String> {
+pub fn create_character(
+    db: State<'_, DbState>,
+    name: String,
+    role_type: Option<String>,
+    soul_json: Option<String>,
+) -> Result<CharacterInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
 
@@ -688,28 +1170,61 @@ pub fn create_character(db: State<'_, DbState>, name: String, role_type: Option<
 }
 
 #[tauri::command]
-pub fn update_character(db: State<'_, DbState>, id: String, name: Option<String>, soul_json: Option<String>, role_type: Option<String>, identity_core: Option<String>, persona_core: Option<String>, core_motivation: Option<String>) -> Result<(), String> {
+pub fn update_character(
+    db: State<'_, DbState>,
+    id: String,
+    name: Option<String>,
+    soul_json: Option<String>,
+    role_type: Option<String>,
+    identity_core: Option<String>,
+    persona_core: Option<String>,
+    core_motivation: Option<String>,
+) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
 
     if let Some(v) = name {
-        conn.execute("UPDATE characters SET name = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![v, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE characters SET name = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(v) = soul_json {
-        conn.execute("UPDATE characters SET soul_json = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![v, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE characters SET soul_json = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(v) = role_type {
-        conn.execute("UPDATE characters SET role_type = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![v, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE characters SET role_type = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(v) = identity_core {
-        conn.execute("UPDATE characters SET identity_core = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![v, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE characters SET identity_core = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(v) = persona_core {
-        conn.execute("UPDATE characters SET persona_core = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![v, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE characters SET persona_core = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(v) = core_motivation {
-        conn.execute("UPDATE characters SET core_motivation = ?1, updated_at = ?2 WHERE id = ?3", rusqlite::params![v, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE characters SET core_motivation = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -719,8 +1234,11 @@ pub fn update_character(db: State<'_, DbState>, id: String, name: Option<String>
 pub fn delete_character(db: State<'_, DbState>, id: String) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
-    conn.execute("DELETE FROM characters WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM characters WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -911,11 +1429,9 @@ pub fn get_chapter_statistics(db: State<'_, DbState>) -> Result<ChapterStatistic
 
     // Completion estimate: (target_words - total_words) / words_per_day
     let target_words: i64 = conn
-        .query_row(
-            "SELECT target_words FROM projects LIMIT 1",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT target_words FROM projects LIMIT 1", [], |r| {
+            r.get(0)
+        })
         .unwrap_or(0);
 
     let remaining = (target_words - total_words).max(0);
@@ -978,14 +1494,34 @@ pub fn auto_generate_chapter_outline(
         );
 
         match task {
-            Ok((objective, must_progress, must_recall, must_avoid, required_hooks, required_context, ending_hook)) => {
+            Ok((
+                objective,
+                must_progress,
+                must_recall,
+                must_avoid,
+                required_hooks,
+                required_context,
+                ending_hook,
+            )) => {
                 let mut summary = format!("目标: {}", objective);
-                if let Some(ref p) = must_progress { summary.push_str(&format!("\n必须推进: {}", p)); }
-                if let Some(ref r) = must_recall { summary.push_str(&format!("\n必须回顾: {}", r)); }
-                if let Some(ref a) = must_avoid { summary.push_str(&format!("\n必须避免: {}", a)); }
-                if let Some(ref h) = required_hooks { summary.push_str(&format!("\n必须钩子: {}", h)); }
-                if let Some(ref c) = required_context { summary.push_str(&format!("\n必须上下文: {}", c)); }
-                if let Some(ref e) = ending_hook { summary.push_str(&format!("\n结尾钩子: {}", e)); }
+                if let Some(ref p) = must_progress {
+                    summary.push_str(&format!("\n必须推进: {}", p));
+                }
+                if let Some(ref r) = must_recall {
+                    summary.push_str(&format!("\n必须回顾: {}", r));
+                }
+                if let Some(ref a) = must_avoid {
+                    summary.push_str(&format!("\n必须避免: {}", a));
+                }
+                if let Some(ref h) = required_hooks {
+                    summary.push_str(&format!("\n必须钩子: {}", h));
+                }
+                if let Some(ref c) = required_context {
+                    summary.push_str(&format!("\n必须上下文: {}", c));
+                }
+                if let Some(ref e) = ending_hook {
+                    summary.push_str(&format!("\n结尾钩子: {}", e));
+                }
                 summary
             }
             Err(_) => format!("第{}章 (无任务卡)", chapter_number),
@@ -993,11 +1529,9 @@ pub fn auto_generate_chapter_outline(
     };
 
     let suggested_word_count = conn
-        .query_row(
-            "SELECT min_chapter_words FROM projects LIMIT 1",
-            [],
-            |r| r.get::<_, i64>(0),
-        )
+        .query_row("SELECT min_chapter_words FROM projects LIMIT 1", [], |r| {
+            r.get::<_, i64>(0)
+        })
         .unwrap_or(2000);
 
     Ok(ChapterOutlineSuggestion {
@@ -1046,8 +1580,7 @@ pub fn merge_recall_results(
     use std::collections::HashMap;
 
     // Collect FTS chapter set
-    let fts_set: std::collections::HashSet<i64> =
-        fts_chapters.iter().cloned().collect();
+    let fts_set: std::collections::HashSet<i64> = fts_chapters.iter().cloned().collect();
 
     // Merge RAG results: deduplicate by chapter_number, keep highest score
     let mut rag_best: HashMap<i64, f32> = HashMap::new();
@@ -1070,9 +1603,7 @@ pub fn merge_recall_results(
         .map(|chapter_number| {
             let fts_match = fts_set.contains(&chapter_number);
             let rag_score = rag_best.get(&chapter_number).copied();
-            let combined_rank =
-                (if fts_match { 0.5 } else { 0.0 })
-                + rag_score.unwrap_or(0.0);
+            let combined_rank = (if fts_match { 0.5 } else { 0.0 }) + rag_score.unwrap_or(0.0);
             MergedRecallResult {
                 chapter_number,
                 fts_match,
@@ -1091,4 +1622,21 @@ pub fn merge_recall_results(
     });
 
     Ok(merged)
+}
+
+#[tauri::command]
+pub async fn save_chapter_title(
+    db: State<'_, DbState>,
+    chapter_number: i64,
+    title: String,
+) -> Result<(), String> {
+    let project_conn = db.project.lock().map_err(|e| e.to_string())?;
+    let conn = project_conn.as_ref().ok_or("No project open")?;
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE chapters SET title = ?1, updated_at = ?2 WHERE chapter_number = ?3",
+        rusqlite::params![title, now, chapter_number],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

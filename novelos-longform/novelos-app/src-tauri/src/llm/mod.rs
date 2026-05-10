@@ -6,17 +6,21 @@ pub mod provider;
 use provider::LlmProvider;
 pub mod retry;
 
-use std::sync::Arc;
-
 /// Shared HTTP client for all LLM providers.
-/// Reuses connection pools and keep-alive across requests.
-pub fn shared_client() -> reqwest::Client {
+/// Lazily initialized and truly shared across all requests.
+use std::sync::LazyLock;
+
+static SHARED_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .pool_max_idle_per_host(4)
         .pool_idle_timeout(std::time::Duration::from_secs(90))
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .unwrap_or_default()
+});
+
+pub fn shared_client() -> reqwest::Client {
+    SHARED_CLIENT.clone()
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,7 +48,7 @@ impl Default for LlmConfig {
             max_tokens: 4096,
             temperature: 0.7,
             embedding_provider: String::new(), // auto-detect
-            embedding_model: String::new(),   // use provider default
+            embedding_model: String::new(),    // use provider default
         }
     }
 }
@@ -58,6 +62,7 @@ pub struct ChatMessage {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChatResponse {
     pub content: String,
+    pub reasoning_content: String,
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
@@ -67,6 +72,7 @@ pub struct ChatResponse {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StreamChunk {
     pub delta: String,
+    pub reasoning_delta: String,
     pub done: bool,
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -90,7 +96,11 @@ impl LlmService {
         self.config = config;
     }
 
-    pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn chat(
+        &self,
+        messages: Vec<ChatMessage>,
+    ) -> Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>> {
+        validate_chat_config(&self.config)?;
         match self.config.provider.as_str() {
             "anthropic" => {
                 let provider = anthropic::AnthropicProvider::new(self.config.clone());
@@ -128,17 +138,20 @@ impl LlmService {
     pub fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
-    ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>> + Send>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn tokio_stream::Stream<
+                    Item = Result<StreamChunk, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send,
+        >,
+    > {
         match self.config.provider.as_str() {
-            "anthropic" => {
-                anthropic::AnthropicProvider::new(self.config.clone()).chat_completion_stream(messages)
-            }
+            "anthropic" => anthropic::AnthropicProvider::new(self.config.clone())
+                .chat_completion_stream(messages),
             "ollama" => {
                 ollama::OllamaProvider::new(self.config.clone()).chat_completion_stream(messages)
             }
-            _ => {
-                openai::OpenAiProvider::new(self.config.clone()).chat_completion_stream(messages)
-            }
+            _ => openai::OpenAiProvider::new(self.config.clone()).chat_completion_stream(messages),
         }
     }
 
@@ -147,7 +160,10 @@ impl LlmService {
     /// - "ollama": use local Ollama embedding endpoint
     /// - "openai": use OpenAI-compatible embedding endpoint
     /// - empty (auto-detect): try Ollama first, fall back to OpenAI
-    pub async fn embed(&self, text: &str) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn embed(
+        &self,
+        text: &str,
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         let emb_provider = self.config.embedding_provider.as_str();
         let emb_model = self.resolve_embedding_model(emb_provider);
 
@@ -196,4 +212,46 @@ impl LlmService {
             _ => "text-embedding-3-small".to_string(),
         }
     }
+}
+
+fn validate_chat_config(
+    config: &LlmConfig,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if config.provider == "anthropic" {
+        let model = config.model.trim().to_lowercase();
+        let base_url = config.base_url.trim().trim_end_matches('/').to_lowercase();
+        let is_deepseek_model = model.starts_with("deepseek");
+        let is_deepseek_anthropic_base = base_url.contains("api.deepseek.com/anthropic");
+
+        if is_deepseek_model && !is_deepseek_anthropic_base {
+            let current_base = if config.base_url.trim().is_empty() {
+                "（空，将回退到 https://api.anthropic.com）"
+            } else {
+                config.base_url.trim()
+            };
+
+            return Err(format!(
+                "DeepSeek 支持 Anthropic 协议，但 base_url 需要指向 `https://api.deepseek.com/anthropic`。当前 base_url 为 `{}`；如果你想走 DeepSeek 的 OpenAI 兼容接口 `https://api.deepseek.com`，请把 Provider 改为 `openai`。",
+                current_base
+            )
+            .into());
+        }
+
+        let obviously_non_anthropic = [
+            "gpt-", "qwen", "glm", "gemini", "moonshot", "kimi", "doubao", "llama", "mistral",
+        ];
+
+        if obviously_non_anthropic
+            .iter()
+            .any(|prefix| model.starts_with(prefix))
+        {
+            return Err(format!(
+                "当前 Provider 为 anthropic，但模型 `{}` 看起来不是 Claude 系列。Anthropic Provider 使用 `/v1/messages` 协议；如果你接的是 OpenAI 兼容网关，请把 Provider 改为 `openai`。",
+                config.model
+            )
+            .into());
+        }
+    }
+
+    Ok(())
 }

@@ -273,4 +273,3 @@ pub mod review_chair {
 
     pub const USER_TEMPLATE: &str = "请综合以下专家的评审意见给出终审结论：\n\n章节信息：第{chapter_number}章\n\n各专家评审报告：\n{expert_reports}\n\n{detected_conflicts}";
 }
-

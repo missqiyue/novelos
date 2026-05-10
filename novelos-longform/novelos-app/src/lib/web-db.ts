@@ -80,6 +80,22 @@ function runMigrations(db: Database, migrations: Migration[]): void {
   for (const migration of pending) {
     db.run("BEGIN");
     try {
+      if (migration.version === 7 && migration.name === "llm_call_request_id") {
+        const pragma = db.exec("PRAGMA table_info(llm_api_calls)");
+        const hasRequestId = pragma.length > 0
+          && pragma[0].values.some((row) => row[1] === "request_id");
+        if (!hasRequestId) {
+          db.run("ALTER TABLE llm_api_calls ADD COLUMN request_id TEXT");
+        }
+        db.run("COMMIT");
+        db.run("INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, ?)", [
+          migration.version,
+          migration.name,
+          new Date().toISOString(),
+        ]);
+        continue;
+      }
+
       // Split on semicolons and execute each statement
       const statements = migration.sql
         .split(";")

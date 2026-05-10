@@ -19,3 +19,6 @@ build/
 # Lock files (optional - comment out if you want to include them)
 package-lock.json
 pnpm-lock.yaml
+
+# Local credentials
+.git-credentials

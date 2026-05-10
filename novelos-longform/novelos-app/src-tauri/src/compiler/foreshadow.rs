@@ -3,8 +3,12 @@ use super::{CompileContext, CompileIssue, CompilePass};
 pub struct ForeshadowChecker;
 
 impl CompilePass for ForeshadowChecker {
-    fn name(&self) -> &'static str { "ForeshadowChecker" }
-    fn description(&self) -> &'static str { "检查伏笔超期" }
+    fn name(&self) -> &'static str {
+        "ForeshadowChecker"
+    }
+    fn description(&self) -> &'static str {
+        "检查伏笔超期"
+    }
 
     fn check(&self, ctx: &CompileContext) -> Vec<CompileIssue> {
         let mut issues = Vec::new();
@@ -17,8 +21,14 @@ impl CompilePass for ForeshadowChecker {
                         issues.push(CompileIssue {
                             checker: self.name().to_string(),
                             severity: "warning".to_string(),
-                            message: format!("伏笔超期未回收: {} (已埋设{}章)", fs.title.as_deref().unwrap_or("未命名"), chapters_since),
-                            detail: Some("建议在近期章节中回收此伏笔，或评估是否可以废弃".to_string()),
+                            message: format!(
+                                "伏笔超期未回收: {} (已埋设{}章)",
+                                fs.title.as_deref().unwrap_or("未命名"),
+                                chapters_since
+                            ),
+                            detail: Some(
+                                "建议在近期章节中回收此伏笔，或评估是否可以废弃".to_string(),
+                            ),
                             location: None,
                             paragraph_index: None,
                         });

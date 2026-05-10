@@ -225,6 +225,8 @@ export const outlineApi = {
   saveVolumeOutline: (volumeId: string, contentJson: string, changeReason?: string) =>
     invoke<VolumeOutlineInfo>("save_volume_outline", { volumeId, contentJson, changeReason }),
   listChapterOutlines: () => invoke<ChapterOutlineInfo[]>("list_chapter_outlines"),
+  getLatestChapterOutline: (chapterNumber: number) =>
+    invoke<ChapterOutlineInfo | null>("get_latest_chapter_outline", { chapterNumber }),
   saveChapterOutline: (
     chapterNumber: number,
     contentJson: string,
@@ -400,6 +402,8 @@ export const chapterApi = {
     invoke<void>("set_compile_status", { chapterNumber, compilerStatus }),
   setReviewStatus: (chapterNumber: number, reviewStatus: string) =>
     invoke<void>("set_review_status", { chapterNumber, reviewStatus }),
+  saveTitle: (chapterNumber: number, title: string) =>
+    invoke<void>("save_chapter_title", { chapterNumber, title }),
 };
 
 // ─── Compiler ───
@@ -442,10 +446,102 @@ export interface ParagraphRewriteResult {
   compile_score: number | null;
 }
 
+export interface QualityCheck {
+  key: string;
+  name: string;
+  status: string;
+  severity: string;
+  message: string;
+  action: string | null;
+}
+
+export interface QualityAction {
+  key: string;
+  label: string;
+  action_type: string;
+  reason: string;
+}
+
+export interface QualityArtifacts {
+  compile_score: number;
+  compile_status: string;
+  word_count: number;
+  required_foreshadows: string[];
+  required_task_focus: string[];
+}
+
+export interface ChapterQualityReport {
+  id: string;
+  chapter_number: number;
+  report_type: string;
+  overall: string;
+  summary: string;
+  checks: QualityCheck[];
+  actions: QualityAction[];
+  artifacts: QualityArtifacts;
+  cached: boolean;
+  created_at: string;
+}
+
+export interface QuickReviewExpertReport {
+  expert_name: string;
+  agent_name: string;
+  passed: boolean;
+  score: number | null;
+  suggestions: string[];
+}
+
+export interface QuickReviewReport {
+  id: string;
+  chapter_number: number;
+  report_type: string;
+  overall: string;
+  summary: string;
+  experts: QuickReviewExpertReport[];
+  cached: boolean;
+  created_at: string;
+}
+
+export interface RepairChapterResult {
+  chapter_number: number;
+  revised_text: string;
+  compile_result: CompileResult;
+  quality_report: ChapterQualityReport;
+  repair_reasons: string[];
+  resolution_report: {
+    status: string;
+    resolved: string[];
+    persisted: string[];
+    added: string[];
+    needs_manual: boolean;
+  };
+}
+
 export const compilerApi = {
   compile: (chapterNumber: number, draftText: string) =>
     invoke<CompileResult>("compile_chapter", {
       input: { chapter_number: chapterNumber, draft_text: draftText },
+    }),
+  computeQualityReport: (chapterNumber: number, draftText: string) =>
+    invoke<ChapterQualityReport>("compute_chapter_quality_report", {
+      input: { chapter_number: chapterNumber, draft_text: draftText },
+    }),
+  getLatestQualityReport: (chapterNumber: number) =>
+    invoke<ChapterQualityReport | null>("get_latest_chapter_quality_report", { chapterNumber }),
+  runQuickReview: (chapterNumber: number, draftText: string, forceReview = false) =>
+    invoke<QuickReviewReport>("run_quick_review", {
+      input: { chapter_number: chapterNumber, draft_text: draftText, force_review: forceReview },
+    }),
+  listReviewHistory: (chapterNumber: number, limit?: number) =>
+    invoke<QuickReviewReport[]>("list_chapter_review_history", { chapterNumber, limit }),
+  repairWithQualityActions: (
+    chapterNumber: number,
+    draftText: string,
+    reasons: string[],
+    mode?: string,
+  ) =>
+    invoke<RepairChapterResult>("repair_chapter_with_quality_actions", {
+      input: { chapter_number: chapterNumber, draft_text: draftText, reasons, mode },
     }),
   rewriteParagraph: (chapterNumber: number, paragraphIndex: number, requirements: string) =>
     invoke<ParagraphRewriteResult>("run_paragraph_rewrite", {
@@ -539,6 +635,8 @@ export interface NotificationInfo {
   severity: string;
   message: string;
   related_entity: string | null;
+  related_entity_type: string | null;
+  related_entity_id: string | null;
   read_status: boolean;
   created_at: string;
 }
@@ -644,8 +742,12 @@ export const ledgerApi = {
   }) => invoke<AbilityItemInfo>("upsert_ability_item", { input }),
   // Summary
   // Notifications
-  listNotifications: (unreadOnly?: boolean) =>
-    invoke<NotificationInfo[]>("list_notifications", { unreadOnly }),
+  listNotifications: (unreadOnly?: boolean, relatedEntityType?: string, relatedEntityId?: string) =>
+    invoke<NotificationInfo[]>("list_notifications", {
+      unreadOnly,
+      relatedEntityType,
+      relatedEntityId,
+    }),
   markNotificationRead: (id: string) => invoke<void>("mark_notification_read", { id }),
   getUnreadCount: () =>
     invoke<{ total: number; by_type: Record<string, number> }>("get_unread_notification_count"),
@@ -738,9 +840,22 @@ export interface RetconWorkflowState {
   hard_rule_violation: boolean;
   hard_rule_details: string | null;
   selected_scheme: string | null;
-  execution_plan: { retcon_id: string; status: string; affected_chapters: number[]; estimated_duration_seconds: number } | null;
-  post_check_result: { passed_count: number; failed_count: number; needs_attention: Array<{ chapter_number: number; status: string; score: number }> } | null;
-  snapshot_result: { retcon_id: string; snapshots_regenerated: number; chapter_numbers: number[] } | null;
+  execution_plan: {
+    retcon_id: string;
+    status: string;
+    affected_chapters: number[];
+    estimated_duration_seconds: number;
+  } | null;
+  post_check_result: {
+    passed_count: number;
+    failed_count: number;
+    needs_attention: Array<{ chapter_number: number; status: string; score: number }>;
+  } | null;
+  snapshot_result: {
+    retcon_id: string;
+    snapshots_regenerated: number;
+    chapter_numbers: number[];
+  } | null;
   warnings: string[];
 }
 
@@ -793,6 +908,29 @@ export interface UpsertWritingPatternInput {
   description: string;
   usage_guide?: string | null;
   sample_text?: string | null;
+}
+
+export interface UpsertStyleProfileInput {
+  id?: string;
+  name: string;
+  metrics: string;
+  preferred_patterns: string;
+  anti_ai_features: string;
+  sample_paragraphs: string;
+  banned_patterns: string;
+}
+
+export interface UpsertGenreTemplateInput {
+  id?: string;
+  genre_id: string;
+  genre_name: string;
+  world_framework?: string | null;
+  volume_rhythm?: string | null;
+  character_archetypes?: string | null;
+  thrill_params?: string | null;
+  taboo_rules?: string | null;
+  naming_style?: string | null;
+  naming_examples?: string | null;
 }
 
 export interface GlobalResourcesOverview {
@@ -936,6 +1074,7 @@ export interface ChatMessage {
 
 export interface ChatResponse {
   content: string;
+  reasoning_content: string;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
@@ -944,6 +1083,7 @@ export interface ChatResponse {
 
 export interface StreamChunk {
   delta: string;
+  reasoning_delta: string;
   done: boolean;
   prompt_tokens: number;
   completion_tokens: number;
@@ -985,8 +1125,13 @@ export const llmApi = {
   chatStream: (messages: ChatMessage[], requestId: string) =>
     invoke<void>("chat_completion_stream", { messages, requestId }),
   saveConfigToDb: (config: LlmConfig) => invoke<void>("save_llm_config_to_db", { config }),
+  saveRuntimeConfigToDb: () => invoke<void>("save_runtime_llm_config_to_db"),
   loadConfigFromDb: () => invoke<LlmConfig | null>("load_llm_config_from_db"),
   getTokenUsage: () => invoke<TokenUsageSummary>("get_token_usage"),
+  listApiCalls: (agentName?: string, limit?: number) =>
+    invoke<LlmApiCallEntry[]>("list_llm_api_calls", { agentName, limit }),
+  listStreamEvents: (requestId: string, limit?: number) =>
+    invoke<LlmStreamEventEntry[]>("list_llm_stream_events", { requestId, limit }),
 };
 
 export interface TokenUsageSummary {
@@ -997,6 +1142,34 @@ export interface TokenUsageSummary {
   total_cost_estimate_usd: number;
   by_agent: Array<{ agent_name: string; calls: number; total_tokens: number }>;
   by_model: Array<{ model: string; calls: number; total_tokens: number }>;
+}
+
+export interface LlmApiCallEntry {
+  id: string;
+  agent_name: string | null;
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  latency_ms: number | null;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface LlmStreamEventEntry {
+  id: string;
+  request_id: string;
+  project_id: string | null;
+  agent_name: string | null;
+  provider: string;
+  model: string;
+  kind: string;
+  delta: string;
+  reasoning_delta: string;
+  done: boolean;
+  created_at: string;
 }
 
 // ─── Agent ───
@@ -1061,6 +1234,7 @@ export interface ConflictMatrix {
 }
 
 export interface PipelineResult {
+  run_id: string;
   steps: PipelineStep[];
   chapter_status: string;
   compiler_score: number | null;
@@ -1071,8 +1245,10 @@ export interface PipelineResult {
 }
 
 export const orchestratorApi = {
-  runPipeline: (chapterNumber: number) =>
-    invoke<PipelineResult>("run_chapter_pipeline", { chapterNumber }),
+  runPipeline: (chapterNumber: number, runId?: string) =>
+    invoke<PipelineResult>("run_chapter_pipeline", { chapterNumber, runId }),
+  getLatestPipelineResult: (chapterNumber: number) =>
+    invoke<PipelineResult | null>("get_latest_chapter_pipeline_result", { chapterNumber }),
   runBatchPipeline: (startChapter: number, endChapter: number) =>
     invoke<PipelineResult[]>("run_batch_pipeline", { startChapter, endChapter }),
 };
@@ -1093,6 +1269,10 @@ export const sharedResourcesApi = {
   listStyleProfiles: () => invoke<StyleProfileInfo[]>("list_style_profiles"),
   listWritingPatterns: (sourceType?: string) =>
     invoke<WritingPatternInfo[]>("list_writing_patterns", { sourceType }),
+  upsertGenreTemplate: (input: UpsertGenreTemplateInput) =>
+    invoke<GenreTemplateInfo>("upsert_genre_template", { input }),
+  upsertStyleProfile: (input: UpsertStyleProfileInput) =>
+    invoke<StyleProfileInfo>("upsert_style_profile", { input }),
   upsertWritingPattern: (input: UpsertWritingPatternInput) =>
     invoke<WritingPatternInfo>("upsert_writing_pattern", { input }),
   applyGenreTemplate: (templateId: string) =>
@@ -1101,6 +1281,8 @@ export const sharedResourcesApi = {
     invoke<void>("apply_style_profile_to_project", { profileId }),
   importDeAiRules: (ruleIds: string[]) =>
     invoke<number>("import_deai_rules_to_project", { ruleIds }),
+  listImportedDeAiRules: () => invoke<string[]>("list_imported_deai_rules"),
+  getEffectiveDeAiRules: () => invoke<DeAiRuleInfo[]>("get_effective_deai_rules"),
   listGlobalResources: () => invoke<GlobalResourcesOverview>("list_global_resources"),
   getEditorPrefs: () => invoke<EditorPrefs>("get_editor_prefs"),
   setEditorPrefs: (prefs: EditorPrefs) => invoke<void>("set_editor_prefs", { prefs }),
@@ -1137,16 +1319,40 @@ export interface CollisionItem {
 
 export const worldApi = {
   listLocations: () => invoke<LocationInfo[]>("list_locations"),
-  createLocation: (input: { name: string; location_type?: string; owner_faction_id?: string; danger_level?: number; status?: string; description?: string }) =>
-    invoke<LocationInfo>("create_location", { input }),
-  updateLocation: (input: { id: string; name?: string; location_type?: string; owner_faction_id?: string; danger_level?: number; status?: string; description?: string }) =>
-    invoke<void>("update_location", { input }),
+  createLocation: (input: {
+    name: string;
+    location_type?: string;
+    owner_faction_id?: string;
+    danger_level?: number;
+    status?: string;
+    description?: string;
+  }) => invoke<LocationInfo>("create_location", { input }),
+  updateLocation: (input: {
+    id: string;
+    name?: string;
+    location_type?: string;
+    owner_faction_id?: string;
+    danger_level?: number;
+    status?: string;
+    description?: string;
+  }) => invoke<void>("update_location", { input }),
   deleteLocation: (id: string) => invoke<void>("delete_location", { id }),
   listFactions: () => invoke<FactionInfo[]>("list_factions"),
-  createFaction: (input: { name: string; faction_type?: string; goal?: string; resource_summary?: string; status?: string }) =>
-    invoke<FactionInfo>("create_faction", { input }),
-  updateFaction: (input: { id: string; name?: string; faction_type?: string; goal?: string; resource_summary?: string; status?: string }) =>
-    invoke<void>("update_faction", { input }),
+  createFaction: (input: {
+    name: string;
+    faction_type?: string;
+    goal?: string;
+    resource_summary?: string;
+    status?: string;
+  }) => invoke<FactionInfo>("create_faction", { input }),
+  updateFaction: (input: {
+    id: string;
+    name?: string;
+    faction_type?: string;
+    goal?: string;
+    resource_summary?: string;
+    status?: string;
+  }) => invoke<void>("update_faction", { input }),
   deleteFaction: (id: string) => invoke<void>("delete_faction", { id }),
   checkCollisions: (query: string) => invoke<CollisionItem[]>("check_collisions", { query }),
 };
@@ -1183,10 +1389,8 @@ export const crashRecoveryApi = {
   emergencySave: (chapterNumber: number, draftText: string) =>
     invoke<void>("emergency_save_draft", { chapterNumber, draftText }),
   check: () => invoke<CrashRecoveryInfo[]>("check_crash_recovery"),
-  restore: (chapterNumber: number) =>
-    invoke<string>("restore_crash_draft", { chapterNumber }),
-  discard: (chapterNumber: number) =>
-    invoke<void>("discard_crash_recovery", { chapterNumber }),
+  restore: (chapterNumber: number) => invoke<string>("restore_crash_draft", { chapterNumber }),
+  discard: (chapterNumber: number) => invoke<void>("discard_crash_recovery", { chapterNumber }),
 };
 
 // ─── Compliance Shield ───
@@ -1262,6 +1466,14 @@ export interface IndexStats {
   total_vectors: number;
 }
 
+export interface RagRebuildProgressEvent {
+  stage: string;
+  current: number;
+  total: number;
+  chapter_number: number | null;
+  message: string | null;
+}
+
 export const ragApi = {
   searchSimilar: (query: string, topK?: number) =>
     invoke<SimilarChapterResult[]>("search_similar_chapters", {
@@ -1273,14 +1485,13 @@ export const ragApi = {
       topK: topK || 5,
       intent: intent || null,
     }),
-  clearBookIndex: (projectId: string) =>
-    invoke<boolean>("clear_book_index", { projectId }),
+  clearBookIndex: (projectId: string) => invoke<boolean>("clear_book_index", { projectId }),
   getIndexStats: () => invoke<IndexStats>("get_index_stats"),
-
+  rebuildBookIndex: () => invoke<IndexStats>("rebuild_book_index"),
+  cancelRebuildBookIndex: () => invoke<boolean>("cancel_rebuild_book_index"),
 };
 
 // ─── Window Theme ───
 export const windowApi = {
-  setWindowTheme: (theme: string) =>
-    invoke<void>("set_window_theme", { theme }),
+  setWindowTheme: (theme: string) => invoke<void>("set_window_theme", { theme }),
 };

@@ -46,13 +46,23 @@ pub fn list_bookshelf(db: State<'_, DbState>) -> Result<Vec<BookshelfItem>, Stri
 }
 
 #[tauri::command]
-pub fn add_to_bookshelf(db: State<'_, DbState>, project_id: String, title: String, genre_name: Option<String>, status: Option<String>) -> Result<String, String> {
+pub fn add_to_bookshelf(
+    db: State<'_, DbState>,
+    project_id: String,
+    title: String,
+    genre_name: Option<String>,
+    status: Option<String>,
+) -> Result<String, String> {
     let conn = db.global.lock().map_err(|e| e.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
     let max_order: i64 = conn
-        .query_row("SELECT COALESCE(MAX(display_order), 0) FROM bookshelf", [], |r| r.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(display_order), 0) FROM bookshelf",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
 
     let st = status.unwrap_or_else(|| "planning".to_string());
@@ -75,20 +85,35 @@ pub fn remove_from_bookshelf(db: State<'_, DbState>, id: String) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn update_bookshelf_item(db: State<'_, DbState>, project_id: String, title: Option<String>, genre_name: Option<String>, status: Option<String>) -> Result<(), String> {
+pub fn update_bookshelf_item(
+    db: State<'_, DbState>,
+    project_id: String,
+    title: Option<String>,
+    genre_name: Option<String>,
+    status: Option<String>,
+) -> Result<(), String> {
     let conn = db.global.lock().map_err(|e| e.to_string())?;
 
     if let Some(t) = title {
-        conn.execute("UPDATE bookshelf SET title = ?1 WHERE project_id = ?2", rusqlite::params![t, project_id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE bookshelf SET title = ?1 WHERE project_id = ?2",
+            rusqlite::params![t, project_id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(g) = genre_name {
-        conn.execute("UPDATE bookshelf SET genre_name = ?1 WHERE project_id = ?2", rusqlite::params![g, project_id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE bookshelf SET genre_name = ?1 WHERE project_id = ?2",
+            rusqlite::params![g, project_id],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(s) = status {
-        conn.execute("UPDATE bookshelf SET status = ?1 WHERE project_id = ?2", rusqlite::params![s, project_id])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE bookshelf SET status = ?1 WHERE project_id = ?2",
+            rusqlite::params![s, project_id],
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -150,15 +175,24 @@ pub fn list_de_ai_rules(db: State<'_, DbState>) -> Result<Vec<DeAiRuleInfo>, Str
 }
 
 #[tauri::command]
-pub fn upsert_de_ai_rule(db: State<'_, DbState>, input: UpsertDeAiRuleInput) -> Result<DeAiRuleInfo, String> {
+pub fn upsert_de_ai_rule(
+    db: State<'_, DbState>,
+    input: UpsertDeAiRuleInput,
+) -> Result<DeAiRuleInfo, String> {
     let global_conn = db.global.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().to_rfc3339();
 
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let existing: Option<String> = global_conn
-        .query_row("SELECT id FROM de_ai_rules WHERE id = ?1", [&id], |r| r.get(0))
+        .query_row("SELECT id FROM de_ai_rules WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
         .ok();
-    let enabled = if input.is_enabled.unwrap_or(true) { 1i64 } else { 0i64 };
+    let enabled = if input.is_enabled.unwrap_or(true) {
+        1i64
+    } else {
+        0i64
+    };
 
     if existing.is_some() {
         global_conn.execute(
@@ -202,7 +236,9 @@ fn get_de_ai_rule_inner(conn: &rusqlite::Connection, id: &str) -> Result<DeAiRul
 #[tauri::command]
 pub fn delete_de_ai_rule(db: State<'_, DbState>, id: String) -> Result<(), String> {
     let global_conn = db.global.lock().map_err(|e| e.to_string())?;
-    global_conn.execute("DELETE FROM de_ai_rules WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;
+    global_conn
+        .execute("DELETE FROM de_ai_rules WHERE id = ?1", [&id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -223,25 +259,54 @@ pub struct SoulTemplateInfo {
 }
 
 #[tauri::command]
-pub fn list_soul_templates(db: State<'_, DbState>, category: Option<String>) -> Result<Vec<SoulTemplateInfo>, String> {
+pub fn list_soul_templates(
+    db: State<'_, DbState>,
+    category: Option<String>,
+) -> Result<Vec<SoulTemplateInfo>, String> {
     let global_conn = db.global.lock().map_err(|e| e.to_string())?;
     let mut items = Vec::new();
     if let Some(ref cat) = category {
         let mut stmt = global_conn.prepare("SELECT id, soul_name, category, genre_compat, personality_json, speech_json, behavior_json, relationships_json, is_builtin, created_at FROM soul_templates WHERE category = ?1 ORDER BY soul_name").map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([cat], |row| Ok(SoulTemplateInfo {
-            id: row.get(0)?, soul_name: row.get(1)?, category: row.get(2)?, genre_compat: row.get(3)?,
-            personality_json: row.get(4)?, speech_json: row.get(5)?, behavior_json: row.get(6)?,
-            relationships_json: row.get(7)?, is_builtin: row.get::<_, i64>(8)? != 0, created_at: row.get(9)?,
-        })).map_err(|e| e.to_string())?;
-        for row in rows { items.push(row.map_err(|e| e.to_string())?); }
+        let rows = stmt
+            .query_map([cat], |row| {
+                Ok(SoulTemplateInfo {
+                    id: row.get(0)?,
+                    soul_name: row.get(1)?,
+                    category: row.get(2)?,
+                    genre_compat: row.get(3)?,
+                    personality_json: row.get(4)?,
+                    speech_json: row.get(5)?,
+                    behavior_json: row.get(6)?,
+                    relationships_json: row.get(7)?,
+                    is_builtin: row.get::<_, i64>(8)? != 0,
+                    created_at: row.get(9)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            items.push(row.map_err(|e| e.to_string())?);
+        }
     } else {
         let mut stmt = global_conn.prepare("SELECT id, soul_name, category, genre_compat, personality_json, speech_json, behavior_json, relationships_json, is_builtin, created_at FROM soul_templates ORDER BY category, soul_name").map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], |row| Ok(SoulTemplateInfo {
-            id: row.get(0)?, soul_name: row.get(1)?, category: row.get(2)?, genre_compat: row.get(3)?,
-            personality_json: row.get(4)?, speech_json: row.get(5)?, behavior_json: row.get(6)?,
-            relationships_json: row.get(7)?, is_builtin: row.get::<_, i64>(8)? != 0, created_at: row.get(9)?,
-        })).map_err(|e| e.to_string())?;
-        for row in rows { items.push(row.map_err(|e| e.to_string())?); }
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(SoulTemplateInfo {
+                    id: row.get(0)?,
+                    soul_name: row.get(1)?,
+                    category: row.get(2)?,
+                    genre_compat: row.get(3)?,
+                    personality_json: row.get(4)?,
+                    speech_json: row.get(5)?,
+                    behavior_json: row.get(6)?,
+                    relationships_json: row.get(7)?,
+                    is_builtin: row.get::<_, i64>(8)? != 0,
+                    created_at: row.get(9)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            items.push(row.map_err(|e| e.to_string())?);
+        }
     }
     Ok(items)
 }
@@ -268,10 +333,23 @@ pub fn list_genre_templates(db: State<'_, DbState>) -> Result<Vec<GenreTemplateI
     let mut stmt = global_conn.prepare(
         "SELECT id, genre_id, genre_name, world_framework, volume_rhythm, character_archetypes, thrill_params, taboo_rules, naming_style, naming_examples FROM genre_templates ORDER BY genre_name"
     ).map_err(|e| e.to_string())?;
-    let items = stmt.query_map([], |row| Ok(GenreTemplateInfo {
-        id: row.get(0)?, genre_id: row.get(1)?, genre_name: row.get(2)?,
-        world_framework: row.get(3)?, volume_rhythm: row.get(4)?, character_archetypes: row.get(5)?,
-        thrill_params: row.get(6)?, taboo_rules: row.get(7)?, naming_style: row.get(8)?, naming_examples: row.get(9)?,
-    })).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let items = stmt
+        .query_map([], |row| {
+            Ok(GenreTemplateInfo {
+                id: row.get(0)?,
+                genre_id: row.get(1)?,
+                genre_name: row.get(2)?,
+                world_framework: row.get(3)?,
+                volume_rhythm: row.get(4)?,
+                character_archetypes: row.get(5)?,
+                thrill_params: row.get(6)?,
+                taboo_rules: row.get(7)?,
+                naming_style: row.get(8)?,
+                naming_examples: row.get(9)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
     Ok(items)
 }

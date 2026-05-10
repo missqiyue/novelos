@@ -73,7 +73,11 @@ pub fn create_project(
         {
             let global_conn = db.global.lock().map_err(|e| e.to_string())?;
             let max_order: i64 = global_conn
-                .query_row("SELECT COALESCE(MAX(display_order), 0) FROM bookshelf", [], |r| r.get(0))
+                .query_row(
+                    "SELECT COALESCE(MAX(display_order), 0) FROM bookshelf",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap_or(0);
             global_conn
                 .execute(
@@ -149,27 +153,35 @@ pub fn switch_project(
 }
 
 #[tauri::command]
-pub fn close_project(
-    db: State<'_, DbState>,
-) -> Result<(), String> {
+pub fn close_project(db: State<'_, DbState>) -> Result<(), String> {
     // RAG data is now persisted in SQLite (book.db), no file save needed
     db.close_project_db();
     Ok(())
 }
 
 #[tauri::command]
-pub fn update_project(db: State<'_, DbState>, title: Option<String>, status: Option<String>) -> Result<(), String> {
+pub fn update_project(
+    db: State<'_, DbState>,
+    title: Option<String>,
+    status: Option<String>,
+) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
     let now = chrono::Utc::now().to_rfc3339();
 
     if let Some(ref t) = title {
-        conn.execute("UPDATE projects SET title = ?1, updated_at = ?2", rusqlite::params![t, now])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE projects SET title = ?1, updated_at = ?2",
+            rusqlite::params![t, now],
+        )
+        .map_err(|e| e.to_string())?;
     }
     if let Some(ref s) = status {
-        conn.execute("UPDATE projects SET status = ?1, updated_at = ?2", rusqlite::params![s, now])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE projects SET status = ?1, updated_at = ?2",
+            rusqlite::params![s, now],
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     // Sync to bookshelf
@@ -178,11 +190,19 @@ pub fn update_project(db: State<'_, DbState>, title: Option<String>, status: Opt
     {
         let global_conn = db.global.lock().map_err(|e| e.to_string())?;
         if let Some(ref t) = title {
-            global_conn.execute("UPDATE bookshelf SET title = ?1 WHERE project_id = ?2", rusqlite::params![t, project_id])
+            global_conn
+                .execute(
+                    "UPDATE bookshelf SET title = ?1 WHERE project_id = ?2",
+                    rusqlite::params![t, project_id],
+                )
                 .map_err(|e| e.to_string())?;
         }
         if let Some(ref s) = status {
-            global_conn.execute("UPDATE bookshelf SET status = ?1 WHERE project_id = ?2", rusqlite::params![s, project_id])
+            global_conn
+                .execute(
+                    "UPDATE bookshelf SET status = ?1 WHERE project_id = ?2",
+                    rusqlite::params![s, project_id],
+                )
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -191,7 +211,11 @@ pub fn update_project(db: State<'_, DbState>, title: Option<String>, status: Opt
 }
 
 #[tauri::command]
-pub fn delete_project(app: AppHandle, db: State<'_, DbState>, project_id: String) -> Result<(), String> {
+pub fn delete_project(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    project_id: String,
+) -> Result<(), String> {
     // Close if currently open
     {
         let current = db.current_project_id();
@@ -204,7 +228,10 @@ pub fn delete_project(app: AppHandle, db: State<'_, DbState>, project_id: String
     {
         let global_conn = db.global.lock().map_err(|e| e.to_string())?;
         global_conn
-            .execute("DELETE FROM bookshelf WHERE project_id = ?1", rusqlite::params![project_id])
+            .execute(
+                "DELETE FROM bookshelf WHERE project_id = ?1",
+                rusqlite::params![project_id],
+            )
             .map_err(|e| e.to_string())?;
     }
 
@@ -212,14 +239,19 @@ pub fn delete_project(app: AppHandle, db: State<'_, DbState>, project_id: String
     let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
     let project_dir = books_dir.join(&project_id);
     if project_dir.exists() {
-        std::fs::remove_dir_all(&project_dir).map_err(|e| format!("Failed to delete project directory: {}", e))?;
+        std::fs::remove_dir_all(&project_dir)
+            .map_err(|e| format!("Failed to delete project directory: {}", e))?;
     }
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn export_project_txt(app: AppHandle, _db: State<'_, DbState>, project_id: String) -> Result<String, String> {
+pub fn export_project_txt(
+    app: AppHandle,
+    _db: State<'_, DbState>,
+    project_id: String,
+) -> Result<String, String> {
     // Open project DB temporarily for export
     let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
     let db_path = books_dir.join(&project_id).join("book.db");
@@ -246,13 +278,18 @@ pub fn export_project_txt(app: AppHandle, _db: State<'_, DbState>, project_id: S
         .map_err(|e| e.to_string())?;
 
     let chapters: Vec<(i64, Option<String>, Option<String>, Option<String>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     for (num, chap_title, final_text, draft_text) in &chapters {
-        let text = final_text.as_deref().or(draft_text.as_deref()).unwrap_or("");
+        let text = final_text
+            .as_deref()
+            .or(draft_text.as_deref())
+            .unwrap_or("");
         if text.is_empty() {
             continue;
         }
@@ -275,13 +312,24 @@ pub fn export_project_txt(app: AppHandle, _db: State<'_, DbState>, project_id: S
         .map_err(|e| e.to_string())?;
 
     let rules: Vec<(String, String, i64, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     for (name, content, is_hard, _status) in &rules {
-        output.push_str(&format!("[{}] {}\n{}\n\n", if *is_hard == 1 { "硬规则" } else { "软规则" }, name, content));
+        output.push_str(&format!(
+            "[{}] {}\n{}\n\n",
+            if *is_hard == 1 {
+                "硬规则"
+            } else {
+                "软规则"
+            },
+            name,
+            content
+        ));
     }
 
     // Export characters
@@ -294,7 +342,9 @@ pub fn export_project_txt(app: AppHandle, _db: State<'_, DbState>, project_id: S
         .map_err(|e| e.to_string())?;
 
     let chars: Vec<(String, String, Option<String>, Option<String>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -311,11 +361,23 @@ pub fn export_project_txt(app: AppHandle, _db: State<'_, DbState>, project_id: S
     }
 
     // Write to file
-    let export_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("exports");
+    let export_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("novelos")
+        .join("exports");
     std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
 
-    let safe_title = title.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127, "_");
-    let filename = format!("{}_{}.txt", safe_title, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let safe_title = title.replace(
+        |c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127,
+        "_",
+    );
+    let filename = format!(
+        "{}_{}.txt",
+        safe_title,
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
     let export_path = export_dir.join(&filename);
 
     std::fs::write(&export_path, &output).map_err(|e| e.to_string())?;
@@ -324,7 +386,11 @@ pub fn export_project_txt(app: AppHandle, _db: State<'_, DbState>, project_id: S
 }
 
 #[tauri::command]
-pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: String) -> Result<String, String> {
+pub fn export_project_md(
+    app: AppHandle,
+    _db: State<'_, DbState>,
+    project_id: String,
+) -> Result<String, String> {
     let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
     let db_path = books_dir.join(&project_id).join("book.db");
 
@@ -363,8 +429,14 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
         output.push_str(&format!("genre: {}\n", g));
     }
     output.push_str(&format!("status: {}\n", status));
-    output.push_str(&format!("created: {}\n", created_at.split('T').next().unwrap_or(&created_at)));
-    output.push_str(&format!("exported: {}\n", chrono::Utc::now().format("%Y-%m-%d")));
+    output.push_str(&format!(
+        "created: {}\n",
+        created_at.split('T').next().unwrap_or(&created_at)
+    ));
+    output.push_str(&format!(
+        "exported: {}\n",
+        chrono::Utc::now().format("%Y-%m-%d")
+    ));
     output.push_str("---\n\n");
 
     output.push_str(&format!("# {}\n\n", title));
@@ -379,8 +451,24 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
     let mut vol_stmt = conn
         .prepare("SELECT volume_number, title, goal, main_conflict, climax, settlement FROM volumes ORDER BY volume_number")
         .map_err(|e| e.to_string())?;
-    let volumes: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = vol_stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
+    let volumes: Vec<(
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = vol_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -399,14 +487,33 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
     let mut stmt = conn
         .prepare("SELECT chapter_number, title, final_text, draft_text, status, word_count FROM chapters ORDER BY chapter_number")
         .map_err(|e| e.to_string())?;
-    let chapters: Vec<(i64, Option<String>, Option<String>, Option<String>, String, Option<i64>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
+    let chapters: Vec<(
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<i64>,
+    )> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     for (num, chap_title, final_text, draft_text, chap_status, word_count) in &chapters {
-        let text = final_text.as_deref().or(draft_text.as_deref()).unwrap_or("");
+        let text = final_text
+            .as_deref()
+            .or(draft_text.as_deref())
+            .unwrap_or("");
         let ct = chap_title.as_deref().unwrap_or("");
         let wc = word_count.unwrap_or(0);
 
@@ -435,13 +542,25 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
         .prepare("SELECT rule_name, content, is_hard, status, scope_type FROM canon_rules WHERE status = 'active' ORDER BY is_hard DESC, rule_name")
         .map_err(|e| e.to_string())?;
     let rules: Vec<(String, String, i64, String, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     for (name, content, is_hard, _status, scope) in &rules {
-        let tag = if *is_hard == 1 { "🔒 硬规则" } else { "📖 软规则" };
+        let tag = if *is_hard == 1 {
+            "🔒 硬规则"
+        } else {
+            "📖 软规则"
+        };
         output.push_str(&format!("### {} — {}\n\n", tag, name));
         output.push_str(&format!("*作用范围: {}*\n\n", scope));
         output.push_str(content);
@@ -454,7 +573,15 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
         .prepare("SELECT name, role_type, identity_core, core_motivation, soul_json FROM characters WHERE status = 'active' ORDER BY name")
         .map_err(|e| e.to_string())?;
     let chars: Vec<(String, String, Option<String>, Option<String>, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -485,11 +612,23 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
     }
 
     // Write to file
-    let export_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("exports");
+    let export_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("novelos")
+        .join("exports");
     std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
 
-    let safe_title = title.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127, "_");
-    let filename = format!("{}_{}.md", safe_title, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let safe_title = title.replace(
+        |c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127,
+        "_",
+    );
+    let filename = format!(
+        "{}_{}.md",
+        safe_title,
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
     let export_path = export_dir.join(&filename);
 
     std::fs::write(&export_path, &output).map_err(|e| e.to_string())?;
@@ -498,7 +637,11 @@ pub fn export_project_md(app: AppHandle, _db: State<'_, DbState>, project_id: St
 }
 
 #[tauri::command]
-pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: String) -> Result<String, String> {
+pub fn export_project_epub(
+    app: AppHandle,
+    _db: State<'_, DbState>,
+    project_id: String,
+) -> Result<String, String> {
     use std::io::Write;
 
     let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
@@ -522,37 +665,60 @@ pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: 
         .prepare("SELECT chapter_number, title, final_text, draft_text FROM chapters ORDER BY chapter_number")
         .map_err(|e| e.to_string())?;
     let chapters: Vec<(i64, Option<String>, Option<String>, Option<String>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     // Build EPUB in memory
-    let export_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("exports");
+    let export_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("novelos")
+        .join("exports");
     std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
 
     let safe_title = title.replace(|c: char| !c.is_alphanumeric() && c as u32 > 127, "_");
-    let filename = format!("{}_{}.epub", safe_title, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let filename = format!(
+        "{}_{}.epub",
+        safe_title,
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
     let export_path = export_dir.join(&filename);
 
     let file = std::fs::File::create(&export_path).map_err(|e| e.to_string())?;
     let mut zip_writer = zip::ZipWriter::new(file);
-    let options = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     // mimetype (must be first, uncompressed)
-    zip_writer.start_file("mimetype", zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored))
+    zip_writer
+        .start_file(
+            "mimetype",
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored),
+        )
         .map_err(|e| e.to_string())?;
-    zip_writer.write_all(b"application/epub+zip").map_err(|e| e.to_string())?;
+    zip_writer
+        .write_all(b"application/epub+zip")
+        .map_err(|e| e.to_string())?;
 
     // META-INF/container.xml
-    zip_writer.start_file("META-INF/container.xml", options).map_err(|e| e.to_string())?;
-    zip_writer.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip_writer
+        .start_file("META-INF/container.xml", options)
+        .map_err(|e| e.to_string())?;
+    zip_writer
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
-</container>"#).map_err(|e| e.to_string())?;
+</container>"#,
+        )
+        .map_err(|e| e.to_string())?;
 
     // Build chapter HTML strings and spine items
     let mut spine_items = String::new();
@@ -561,8 +727,13 @@ pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: 
     let mut play_order = 1i64;
 
     for (num, chap_title, final_text, draft_text) in &chapters {
-        let text = final_text.as_deref().or(draft_text.as_deref()).unwrap_or("");
-        if text.is_empty() { continue; }
+        let text = final_text
+            .as_deref()
+            .or(draft_text.as_deref())
+            .unwrap_or("");
+        if text.is_empty() {
+            continue;
+        }
 
         let ch_id = format!("chapter_{}", num);
         let ch_file = format!("chapter_{}.xhtml", num);
@@ -570,13 +741,18 @@ pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: 
         let heading = format!("第{}章 {}", num, ct);
 
         // Escape HTML
-        let escaped_text = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-        let paragraphs: Vec<String> = escaped_text.split("\n\n")
+        let escaped_text = text
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let paragraphs: Vec<String> = escaped_text
+            .split("\n\n")
             .filter(|p| !p.trim().is_empty())
             .map(|p| format!("    <p>{}</p>", p.trim()))
             .collect();
 
-        let html = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+        let html = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{}</title></head>
@@ -584,19 +760,31 @@ pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: 
   <h2>{}</h2>
 {}
 </body>
-</html>"#, heading, heading, paragraphs.join("\n"));
+</html>"#,
+            heading,
+            heading,
+            paragraphs.join("\n")
+        );
 
-        zip_writer.start_file(format!("OEBPS/{}", ch_file), options).map_err(|e| e.to_string())?;
-        zip_writer.write_all(html.as_bytes()).map_err(|e| e.to_string())?;
+        zip_writer
+            .start_file(format!("OEBPS/{}", ch_file), options)
+            .map_err(|e| e.to_string())?;
+        zip_writer
+            .write_all(html.as_bytes())
+            .map_err(|e| e.to_string())?;
 
         spine_items.push_str(&format!("    <itemref idref=\"{}\"/>\n", ch_id));
-        manifest_items.push_str(&format!("    <item id=\"{}\" href=\"{}\" media-type=\"application/xhtml+xml\"/>\n", ch_id, ch_file));
+        manifest_items.push_str(&format!(
+            "    <item id=\"{}\" href=\"{}\" media-type=\"application/xhtml+xml\"/>\n",
+            ch_id, ch_file
+        ));
         ncx_points.push_str(&format!("    <navPoint id=\"nav_{}\" playOrder=\"{}\">\n      <navLabel><text>{}</text></navLabel>\n      <content src=\"{}\"/>\n    </navPoint>\n", num, play_order, heading, ch_file));
         play_order += 1;
     }
 
     // content.opf
-    let opf = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+    let opf = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <package version="2.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>{}</dc:title>
@@ -611,23 +799,36 @@ pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: 
   <spine toc="ncx">
 {}
   </spine>
-</package>"#, title, author, uuid_id, manifest_items, spine_items);
+</package>"#,
+        title, author, uuid_id, manifest_items, spine_items
+    );
 
-    zip_writer.start_file("OEBPS/content.opf", options).map_err(|e| e.to_string())?;
-    zip_writer.write_all(opf.as_bytes()).map_err(|e| e.to_string())?;
+    zip_writer
+        .start_file("OEBPS/content.opf", options)
+        .map_err(|e| e.to_string())?;
+    zip_writer
+        .write_all(opf.as_bytes())
+        .map_err(|e| e.to_string())?;
 
     // toc.ncx
-    let ncx = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+    let ncx = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">
   <head><meta name="dtb:uid" content="{}"/></head>
   <docTitle><text>{}</text></docTitle>
   <navMap>
 {}
   </navMap>
-</ncx>"#, uuid_id, title, ncx_points);
+</ncx>"#,
+        uuid_id, title, ncx_points
+    );
 
-    zip_writer.start_file("OEBPS/toc.ncx", options).map_err(|e| e.to_string())?;
-    zip_writer.write_all(ncx.as_bytes()).map_err(|e| e.to_string())?;
+    zip_writer
+        .start_file("OEBPS/toc.ncx", options)
+        .map_err(|e| e.to_string())?;
+    zip_writer
+        .write_all(ncx.as_bytes())
+        .map_err(|e| e.to_string())?;
 
     zip_writer.finish().map_err(|e| e.to_string())?;
 
@@ -635,7 +836,11 @@ pub fn export_project_epub(app: AppHandle, _db: State<'_, DbState>, project_id: 
 }
 
 #[tauri::command]
-pub fn export_project_docx(app: AppHandle, _db: State<'_, DbState>, project_id: String) -> Result<String, String> {
+pub fn export_project_docx(
+    app: AppHandle,
+    _db: State<'_, DbState>,
+    project_id: String,
+) -> Result<String, String> {
     use docx_rs::*;
 
     let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
@@ -665,14 +870,23 @@ pub fn export_project_docx(app: AppHandle, _db: State<'_, DbState>, project_id: 
 
     if let Some(ref l) = logline {
         if !l.is_empty() {
-            doc = doc.add_paragraph(Paragraph::new().add_run(Run::new().add_text(l).size(24).italic()));
+            doc = doc
+                .add_paragraph(Paragraph::new().add_run(Run::new().add_text(l).size(24).italic()));
         }
     }
 
     doc = doc.add_paragraph(Paragraph::new().add_run(Run::new().add_text("").size(24)));
-    doc = doc.add_paragraph(Paragraph::new().add_run(
-        Run::new().add_text(format!("导出日期: {}", chrono::Utc::now().format("%Y-%m-%d"))).size(20).color("808080")
-    ));
+    doc = doc.add_paragraph(
+        Paragraph::new().add_run(
+            Run::new()
+                .add_text(format!(
+                    "导出日期: {}",
+                    chrono::Utc::now().format("%Y-%m-%d")
+                ))
+                .size(20)
+                .color("808080"),
+        ),
+    );
 
     // Page break
     // page break skipped
@@ -681,26 +895,47 @@ pub fn export_project_docx(app: AppHandle, _db: State<'_, DbState>, project_id: 
     let mut stmt = conn
         .prepare("SELECT chapter_number, title, final_text, draft_text, word_count FROM chapters ORDER BY chapter_number")
         .map_err(|e| e.to_string())?;
-    let chapters: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<i64>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+    let chapters: Vec<(
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+    )> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     for (num, chap_title, final_text, draft_text, word_count) in &chapters {
-        let text = final_text.as_deref().or(draft_text.as_deref()).unwrap_or("");
-        if text.is_empty() { continue; }
+        let text = final_text
+            .as_deref()
+            .or(draft_text.as_deref())
+            .unwrap_or("");
+        if text.is_empty() {
+            continue;
+        }
 
         let heading = format!("第{}章 {}", num, chap_title.as_deref().unwrap_or(""));
-        doc = doc.add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text(&heading).size(32).bold())
-        );
+        doc = doc
+            .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&heading).size(32).bold()));
 
         if let Some(wc) = word_count {
             doc = doc.add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new().add_text(format!("{} 字", wc)).size(18).color("808080"))
+                Paragraph::new().add_run(
+                    Run::new()
+                        .add_text(format!("{} 字", wc))
+                        .size(18)
+                        .color("808080"),
+                ),
             );
         }
 
@@ -708,10 +943,8 @@ pub fn export_project_docx(app: AppHandle, _db: State<'_, DbState>, project_id: 
         for para_text in text.split("\n\n") {
             let trimmed = para_text.trim();
             if !trimmed.is_empty() {
-                doc = doc.add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text(trimmed).size(22))
-                );
+                doc = doc
+                    .add_paragraph(Paragraph::new().add_run(Run::new().add_text(trimmed).size(22)));
             }
         }
 
@@ -719,15 +952,26 @@ pub fn export_project_docx(app: AppHandle, _db: State<'_, DbState>, project_id: 
     }
 
     // Write to file
-    let export_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("exports");
+    let export_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("novelos")
+        .join("exports");
     std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
 
     let safe_title = title.replace(|c: char| !c.is_alphanumeric() && c as u32 > 127, "_");
-    let filename = format!("{}_{}.docx", safe_title, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let filename = format!(
+        "{}_{}.docx",
+        safe_title,
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
     let export_path = export_dir.join(&filename);
 
     let file = std::fs::File::create(&export_path).map_err(|e| e.to_string())?;
-    doc.build().pack(file).map_err(|e| format!("DOCX pack error: {}", e))?;
+    doc.build()
+        .pack(file)
+        .map_err(|e| format!("DOCX pack error: {}", e))?;
 
     Ok(export_path.to_string_lossy().to_string())
 }
@@ -744,8 +988,8 @@ pub fn import_project_txt(
     db: State<'_, DbState>,
     file_path: String,
 ) -> Result<ImportResult, String> {
-    let content = std::fs::read_to_string(&file_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let content =
+        std::fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     if content.trim().is_empty() {
         return Err("File is empty".to_string());
@@ -757,7 +1001,8 @@ pub fn import_project_txt(
     let now = chrono::Utc::now().to_rfc3339();
 
     // Split by chapter markers: "第X章" patterns
-    let chapter_pattern = regex::Regex::new(r"(?m)^(第[一二三四五六七八九十百千\d]+章.*)$").map_err(|e| e.to_string())?;
+    let chapter_pattern = regex::Regex::new(r"(?m)^(第[一二三四五六七八九十百千\d]+章.*)$")
+        .map_err(|e| e.to_string())?;
 
     let mut chapter_titles: Vec<String> = Vec::new();
     let mut chapters_imported: i64 = 0;
@@ -802,7 +1047,8 @@ pub fn import_project_txt(
                 conn.execute(
                     "UPDATE projects SET logline = ?1 WHERE id = ?2",
                     rusqlite::params![preamble.chars().take(500).collect::<String>(), project_id],
-                ).map_err(|e| e.to_string())?;
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
 
@@ -848,10 +1094,12 @@ pub fn import_project_txt(
     drop(project_conn);
     {
         let global_conn = db.global.lock().map_err(|e| e.to_string())?;
-        global_conn.execute(
-            "UPDATE bookshelf SET status = 'active' WHERE project_id = ?1",
-            rusqlite::params![project_id],
-        ).map_err(|e| e.to_string())?;
+        global_conn
+            .execute(
+                "UPDATE bookshelf SET status = 'active' WHERE project_id = ?1",
+                rusqlite::params![project_id],
+            )
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(ImportResult {
@@ -864,8 +1112,12 @@ pub fn import_project_txt(
 // --- PDF Export ---
 
 #[tauri::command]
-pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: String) -> Result<String, String> {
-    use genpdf_chinese::{Document, Margins, Size, elements, fonts, style, Element as _};
+pub fn export_project_pdf(
+    app: AppHandle,
+    _db: State<'_, DbState>,
+    project_id: String,
+) -> Result<String, String> {
+    use genpdf_chinese::{elements, fonts, style, Document, Element as _, Margins, Size};
 
     let books_dir = DbState::books_dir(&app).map_err(|e| e.to_string())?;
     let db_path = books_dir.join(&project_id).join("book.db");
@@ -906,21 +1158,29 @@ pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: S
         for path in font_paths {
             if std::path::Path::new(path).exists() {
                 match std::fs::read(path) {
-                    Ok(data) => { found = Some(data); break; }
+                    Ok(data) => {
+                        found = Some(data);
+                        break;
+                    }
                     Err(_) => continue,
                 }
             }
         }
         found.ok_or_else(|| {
-            "PDF导出需要中文字体。请下载 NotoSansSC-Regular.ttf 放入: ".to_string() + custom_font.to_str().unwrap_or("")
+            "PDF导出需要中文字体。请下载 NotoSansSC-Regular.ttf 放入: ".to_string()
+                + custom_font.to_str().unwrap_or("")
         })?
     };
 
     let font_family = fonts::FontFamily {
-        regular: fonts::FontData::new(font_data.clone(), None).map_err(|e| format!("Font load error: {}", e))?,
-        bold: fonts::FontData::new(font_data.clone(), None).map_err(|e| format!("Font load error: {}", e))?,
-        italic: fonts::FontData::new(font_data.clone(), None).map_err(|e| format!("Font load error: {}", e))?,
-        bold_italic: fonts::FontData::new(font_data, None).map_err(|e| format!("Font load error: {}", e))?,
+        regular: fonts::FontData::new(font_data.clone(), None)
+            .map_err(|e| format!("Font load error: {}", e))?,
+        bold: fonts::FontData::new(font_data.clone(), None)
+            .map_err(|e| format!("Font load error: {}", e))?,
+        italic: fonts::FontData::new(font_data.clone(), None)
+            .map_err(|e| format!("Font load error: {}", e))?,
+        bold_italic: fonts::FontData::new(font_data, None)
+            .map_err(|e| format!("Font load error: {}", e))?,
     };
 
     let mut doc = Document::new(font_family);
@@ -933,23 +1193,24 @@ pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: S
 
     // Title page
     doc.push(
-        elements::Paragraph::new(&title)
-            .styled(style::Style::new().with_font_size(24).bold())
+        elements::Paragraph::new(&title).styled(style::Style::new().with_font_size(24).bold()),
     );
 
     if let Some(ref l) = logline {
         if !l.is_empty() {
             doc.push(
-                elements::Paragraph::new(l)
-                    .styled(style::Style::new().with_font_size(12).italic())
+                elements::Paragraph::new(l).styled(style::Style::new().with_font_size(12).italic()),
             );
         }
     }
 
     doc.push(elements::Paragraph::new(""));
     doc.push(
-        elements::Paragraph::new(format!("导出日期: {}", chrono::Utc::now().format("%Y-%m-%d")))
-            .styled(style::Style::new().with_font_size(10))
+        elements::Paragraph::new(format!(
+            "导出日期: {}",
+            chrono::Utc::now().format("%Y-%m-%d")
+        ))
+        .styled(style::Style::new().with_font_size(10)),
     );
 
     // Chapters
@@ -958,19 +1219,26 @@ pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: S
         .map_err(|e| e.to_string())?;
 
     let chapters: Vec<(i64, Option<String>, Option<String>, Option<String>)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
     for (num, chap_title, final_text, draft_text) in &chapters {
-        let text = final_text.as_deref().or(draft_text.as_deref()).unwrap_or("");
-        if text.is_empty() { continue; }
+        let text = final_text
+            .as_deref()
+            .or(draft_text.as_deref())
+            .unwrap_or("");
+        if text.is_empty() {
+            continue;
+        }
 
         let heading = format!("第{}章 {}", num, chap_title.as_deref().unwrap_or(""));
         doc.push(
             elements::Paragraph::new(&heading)
-                .styled(style::Style::new().with_font_size(16).bold())
+                .styled(style::Style::new().with_font_size(16).bold()),
         );
 
         for para in text.split("\n\n") {
@@ -978,7 +1246,7 @@ pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: S
             if !trimmed.is_empty() {
                 doc.push(
                     elements::Paragraph::new(trimmed)
-                        .styled(style::Style::new().with_font_size(12))
+                        .styled(style::Style::new().with_font_size(12)),
                 );
             }
         }
@@ -987,14 +1255,27 @@ pub fn export_project_pdf(app: AppHandle, _db: State<'_, DbState>, project_id: S
     }
 
     // Write to file
-    let export_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("novelos").join("exports");
+    let export_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("novelos")
+        .join("exports");
     std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
 
-    let safe_title = title.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127, "_");
-    let filename = format!("{}_{}.pdf", safe_title, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let safe_title = title.replace(
+        |c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c as u32 > 127,
+        "_",
+    );
+    let filename = format!(
+        "{}_{}.pdf",
+        safe_title,
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
     let export_path = export_dir.join(&filename);
 
-    doc.render_to_file(&export_path).map_err(|e| format!("PDF render error: {}", e))?;
+    doc.render_to_file(&export_path)
+        .map_err(|e| format!("PDF render error: {}", e))?;
 
     Ok(export_path.to_string_lossy().to_string())
 }

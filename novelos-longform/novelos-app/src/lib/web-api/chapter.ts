@@ -269,4 +269,11 @@ export const chapterApi = {
       [reviewStatus, now(), chapterNumber],
     );
   },
+
+  async saveTitle(chapterNumber: number, title: string): Promise<void> {
+    webDb.run(
+      "UPDATE chapters SET title = ?, updated_at = ? WHERE chapter_number = ?",
+      [title, now(), chapterNumber],
+    );
+  },
 };

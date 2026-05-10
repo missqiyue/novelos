@@ -292,23 +292,50 @@ export const ledgerApi = {
     )!;
   },
 
-  async listNotifications(unreadOnly?: boolean): Promise<NotificationInfo[]> {
+  async listNotifications(
+    unreadOnly?: boolean,
+    relatedEntityType?: string,
+    relatedEntityId?: string,
+  ): Promise<NotificationInfo[]> {
+    const entityTypeFilter = relatedEntityType ? " AND related_entity_type = ?" : "";
+    const entityIdFilter = relatedEntityId ? " AND related_entity_id = ?" : "";
+    const params = [relatedEntityType, relatedEntityId].filter(
+      (value): value is string => Boolean(value),
+    );
     if (unreadOnly) {
       const rows = webDb.all<{
         id: string; type: string; severity: string; message: string;
-        related_entity_type: string | null; is_read: number; created_at: string;
+        related_entity_type: string | null; related_entity_id: string | null; is_read: number; created_at: string;
       }>(
-        "SELECT id, type, severity, message, related_entity_type, is_read, created_at FROM notifications WHERE is_read = 0 ORDER BY created_at DESC LIMIT 50",
+        `SELECT id, type, severity, message, related_entity_type, related_entity_id, is_read, created_at
+         FROM notifications
+         WHERE is_read = 0${entityTypeFilter}${entityIdFilter}
+         ORDER BY created_at DESC LIMIT 50`,
+        params,
       );
-      return rows.map((r) => ({ ...r, notif_type: r.type, related_entity: r.related_entity_type, read_status: intToBool(r.is_read) }));
+      return rows.map((r) => ({
+        ...r,
+        notif_type: r.type,
+        related_entity: r.related_entity_type,
+        read_status: intToBool(r.is_read),
+      }));
     }
     const rows = webDb.all<{
       id: string; type: string; severity: string; message: string;
-      related_entity_type: string | null; is_read: number; created_at: string;
+      related_entity_type: string | null; related_entity_id: string | null; is_read: number; created_at: string;
     }>(
-      "SELECT id, type, severity, message, related_entity_type, is_read, created_at FROM notifications ORDER BY created_at DESC LIMIT 50",
+      `SELECT id, type, severity, message, related_entity_type, related_entity_id, is_read, created_at
+       FROM notifications
+       WHERE 1 = 1${entityTypeFilter}${entityIdFilter}
+       ORDER BY created_at DESC LIMIT 50`,
+      params,
     );
-    return rows.map((r) => ({ ...r, notif_type: r.type, related_entity: r.related_entity_type, read_status: intToBool(r.is_read) }));
+    return rows.map((r) => ({
+      ...r,
+      notif_type: r.type,
+      related_entity: r.related_entity_type,
+      read_status: intToBool(r.is_read),
+    }));
   },
 
   async markNotificationRead(id: string): Promise<void> {

@@ -29,6 +29,13 @@ export type {
   CompileStats,
   CompileResult,
   ParagraphRewriteResult,
+  ChapterQualityReport,
+  QualityAction,
+  QualityArtifacts,
+  QualityCheck,
+  QuickReviewExpertReport,
+  QuickReviewReport,
+  RepairChapterResult,
   CharacterStateInfo,
   RelationshipStateInfo,
   TimelineNodeInfo,
@@ -62,8 +69,10 @@ export type {
   ConflictMatrix,
   BackgroundTask,
   StyleProfileInfo,
+  UpsertStyleProfileInput,
   WritingPatternInfo,
   UpsertWritingPatternInput,
+  UpsertGenreTemplateInput,
   GlobalResourcesOverview,
   EditorPrefs,
   LocationInfo,
@@ -79,6 +88,7 @@ export type {
   RagSemanticRecallResponse,
   RagIntentFilter,
   IndexStats,
+  RagRebuildProgressEvent,
 } from "./tauri";
 
 export { WebNotSupportedError } from "./web-api";
