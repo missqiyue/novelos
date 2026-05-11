@@ -41,6 +41,8 @@ import {
   Minimize2,
   Target,
   List,
+  Users,
+  MessageSquare,
 } from "lucide-react";
 import {
   compilerApi,
@@ -64,6 +66,7 @@ import { DiffViewer } from "../common/DiffViewer";
 import { ContextHelp } from "../common/ContextHelp";
 import { useWritingStats } from "../../hooks/useWritingStats";
 import { platform } from "../../lib/platform";
+import { parseOutlineContent, type ChapterOutlineSections } from "../../lib/chapterOutline";
 
 const MAX_REPAIR_ROUNDS = 3;
 
@@ -182,6 +185,107 @@ function parseReviewScore(output: string | null): number | null {
   const looseAiScore = output.match(/"ai_score"\s*:\s*(\d+(?:\.\d+)?)/)?.[1];
   if (looseAiScore) return (100 - Number(looseAiScore)) / 10;
   return null;
+}
+
+function MiniOutlineSections({ sections }: { sections: ChapterOutlineSections }) {
+  return (
+    <div className="max-h-56 overflow-auto rounded bg-white/75 p-3 text-xs leading-5 text-amber-950 ring-1 ring-amber-200/70">
+      {sections.总字数估算 && (
+        <div className="mb-2 flex items-center gap-1 text-amber-700">
+          <Target size={12} />
+          预计 {sections.总字数估算} 字
+        </div>
+      )}
+      {sections.开篇场景 && (
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1 font-medium text-amber-800">
+            <BookOpen size={12} />
+            开篇场景
+          </div>
+          <p className="whitespace-pre-wrap text-gray-700">{sections.开篇场景}</p>
+        </div>
+      )}
+      {sections.情节点列表.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1 font-medium text-amber-800">
+            <List size={12} />
+            情节点
+          </div>
+          <div className="space-y-2">
+            {sections.情节点列表.map((point, index) => (
+              <div
+                key={`${point.order}-${index}`}
+                className="rounded border border-amber-100 bg-amber-50/70 p-2"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[11px] font-semibold text-amber-900">
+                    {point.order || index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-gray-800">{point.description}</p>
+                    {(point.characters_involved.length > 0 || point.estimated_words > 0) && (
+                      <p className="mt-1 text-[11px] text-amber-700">
+                        {point.characters_involved.join("、")}
+                        {point.characters_involved.length > 0 && point.estimated_words > 0
+                          ? " · "
+                          : ""}
+                        {point.estimated_words > 0 ? `约${point.estimated_words}字` : ""}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {sections.角色出场.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1 font-medium text-amber-800">
+            <Users size={12} />
+            角色出场
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {sections.角色出场.map((item, index) => (
+              <span
+                key={`${item}-${index}`}
+                className="rounded bg-green-50 px-2 py-0.5 text-green-700 ring-1 ring-green-100"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {sections.关键对话.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1 font-medium text-amber-800">
+            <MessageSquare size={12} />
+            关键对话
+          </div>
+          <ul className="space-y-1">
+            {sections.关键对话.map((item, index) => (
+              <li key={`${item}-${index}`} className="text-gray-700">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {sections.转折点 && (
+        <div className="mb-3">
+          <div className="mb-1 font-medium text-amber-800">转折点</div>
+          <p className="whitespace-pre-wrap text-gray-700">{sections.转折点}</p>
+        </div>
+      )}
+      {sections.章末状态 && (
+        <div>
+          <div className="mb-1 font-medium text-amber-800">章末状态</div>
+          <p className="whitespace-pre-wrap text-gray-700">{sections.章末状态}</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ChapterWorkbench() {
@@ -1213,6 +1317,9 @@ ${soulText || "暂无"}`,
   const pipelineProgressPct =
     totalPipelineSteps > 0 ? Math.round((completedPipelineSteps / totalPipelineSteps) * 100) : 0;
   const taskForChapter = tasks.find((t) => t.chapter_number === num);
+  const parsedChapterOutline = chapterOutline
+    ? parseOutlineContent(chapterOutline.content_json)
+    : null;
   const livePipelineStepList = Object.entries(pipelineLiveSteps)
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([, step]) => step);
@@ -1623,9 +1730,13 @@ ${soulText || "暂无"}`,
                     正在读取章节大纲...
                   </p>
                 ) : chapterOutline ? (
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-amber-100/60 p-3 text-xs leading-5 text-amber-950">
-                    {chapterOutline.content_json}
-                  </pre>
+                  parsedChapterOutline ? (
+                    <MiniOutlineSections sections={parsedChapterOutline} />
+                  ) : (
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-amber-100/60 p-3 text-xs leading-5 text-amber-950">
+                      {chapterOutline.content_json}
+                    </pre>
+                  )
                 ) : (
                   <div className="flex flex-wrap items-center gap-3 text-amber-700">
                     <span>当前章节还没有大纲。运行全链路后会自动生成并保存。</span>

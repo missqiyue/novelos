@@ -288,7 +288,7 @@ export function ProjectSetupPage() {
       if (volumeStructure.trim()) {
         await outlineApi.saveBookOutline(
           JSON.stringify({ volumes: volumesParsed, raw: volumeStructure }),
-          "一键启动: 卷纲确认",
+          "完整开书向导: 卷纲确认",
         );
       }
 
@@ -301,7 +301,7 @@ export function ProjectSetupPage() {
               outline: outlineResult,
             })
           : JSON.stringify({ outline: outlineResult });
-        await outlineApi.saveBookOutline(combined, "一键启动: 大纲确认");
+        await outlineApi.saveBookOutline(combined, "完整开书向导: 大纲确认");
       }
 
       // Create characters with SOUL
@@ -371,7 +371,12 @@ export function ProjectSetupPage() {
           <button onClick={() => navigate("/")} className="p-2 hover:bg-gray-200 rounded-lg">
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-xl font-bold text-gray-900">一键启动</h1>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">完整开书向导</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              适合逐项细调题材、文风、卷纲、大纲、角色、SOUL 和书名。
+            </p>
+          </div>
         </div>
 
         {/* Step indicator with progress */}

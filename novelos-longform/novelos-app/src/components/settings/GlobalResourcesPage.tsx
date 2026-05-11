@@ -53,6 +53,24 @@ const builtinGenreIds = new Set([
   "gt-010",
 ]);
 
+const resourceHelp: Record<"genre" | "style" | "patterns", { title: string; body: string; status: string }> = {
+  genre: {
+    title: "题材模板如何生效",
+    body: "应用到项目后，会写入题材、世界观框架、卷节奏、角色原型、爽点参数和禁忌规则；后续任务卡、章节大纲和草稿生成都会读取这些约束。",
+    status: "已应用模板会参与：任务卡 / 章节大纲 / 草稿生成",
+  },
+  style: {
+    title: "文风档案如何生效",
+    body: "应用到项目后，会影响语言密度、对白比例、节奏、偏好句式、禁用表达和去 AI 倾向；草稿生成、文笔评审和润色链路会读取。",
+    status: "已应用档案会参与：草稿生成 / 文笔评审 / 去 AI 润色",
+  },
+  patterns: {
+    title: "写作模式如何生效",
+    body: "写作模式会按项目题材过滤后进入草稿生成上下文，用来指导局部技法，例如开章钩子、反转、打脸、伏笔回收、副本推进和比赛场面。",
+    status: "匹配题材的模式会自动参与：草稿生成",
+  },
+};
+
 function emptyStyle(): StyleProfileInfo {
   return {
     id: "",
@@ -452,6 +470,7 @@ export function GlobalResourcesPage() {
 
       {tab === "genre" && (
         <div className="space-y-3">
+          <ResourceHelpBox help={resourceHelp.genre} />
           <button
             onClick={() => openForm("genre")}
             className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700"
@@ -475,6 +494,9 @@ export function GlobalResourcesPage() {
                         内置
                       </span>
                     )}
+                    <span className="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">
+                      应用后参与生成
+                    </span>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -534,6 +556,7 @@ export function GlobalResourcesPage() {
 
       {tab === "style" && (
         <div className="space-y-3">
+          <ResourceHelpBox help={resourceHelp.style} />
           <div className="flex gap-2">
             <button
               onClick={() => openForm("style")}
@@ -565,6 +588,9 @@ export function GlobalResourcesPage() {
                       内置
                     </span>
                   )}
+                  <span className="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">
+                    应用后参与正文
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -694,6 +720,7 @@ export function GlobalResourcesPage() {
 
       {tab === "patterns" && (
         <div className="space-y-3">
+          <ResourceHelpBox help={resourceHelp.patterns} />
           <div className="flex gap-2">
             <button
               onClick={() => openForm("pattern")}
@@ -720,6 +747,9 @@ export function GlobalResourcesPage() {
                 {expanded === p.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 <span className="font-medium text-gray-900">{p.pattern_name}</span>
                 <span className="text-xs text-gray-400">来源: {p.source_type}</span>
+                <span className="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">
+                  自动进入草稿上下文
+                </span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -933,6 +963,20 @@ export function GlobalResourcesPage() {
 
 function FormGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3">{children}</div>;
+}
+
+function ResourceHelpBox({
+  help,
+}: {
+  help: { title: string; body: string; status: string };
+}) {
+  return (
+    <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
+      <p className="text-sm font-medium text-indigo-900">{help.title}</p>
+      <p className="mt-1 text-xs leading-5 text-indigo-700">{help.body}</p>
+      <p className="mt-1 text-xs font-medium text-indigo-800">{help.status}</p>
+    </div>
+  );
 }
 
 function Input({

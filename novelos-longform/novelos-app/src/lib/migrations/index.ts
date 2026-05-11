@@ -4,6 +4,7 @@ import { sql as v003 } from "./V003__seed_genre_templates";
 import { sql as v004 } from "./V004__seed_soul_templates";
 import { sql as v005 } from "./V005__seed_deai_and_banned";
 import { sql as v006 } from "./V006__extended_seed_data";
+import { sql as v009 } from "./V009__rich_shared_resources";
 import { sql as v005ProjectLlmError } from "./V005__llm_call_error_message";
 import { sql as v006ProjectLlmStreamEvents } from "./V006__llm_stream_events";
 import { sql as v007ProjectLlmCallRequestId } from "./V007__llm_call_request_id";
@@ -23,6 +24,7 @@ export const globalMigrations: Migration[] = [
   { version: 4, name: "seed_soul_templates", sql: v004 },
   { version: 5, name: "seed_deai_and_banned", sql: v005 },
   { version: 6, name: "extended_seed_data", sql: v006 },
+  { version: 9, name: "rich_shared_resources", sql: v009 },
 ];
 
 // Project database migrations (schema only, per-project data)

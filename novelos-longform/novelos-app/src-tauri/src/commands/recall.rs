@@ -848,6 +848,73 @@ pub fn fetch_genre(conn: &rusqlite::Connection) -> String {
     .unwrap_or_else(|| "通用".to_string())
 }
 
+fn fetch_project_setting(conn: &rusqlite::Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM project_settings WHERE key = ?1 ORDER BY updated_at DESC LIMIT 1",
+        [key],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
+fn compact_json_field(label: &str, value: &str) -> String {
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
+        if let Some(obj) = parsed.as_object() {
+            let mut parts = Vec::new();
+            for (key, val) in obj.iter().take(6) {
+                if let Some(s) = val.as_str() {
+                    parts.push(format!("{}={}", key, s));
+                } else if let Some(arr) = val.as_array() {
+                    let inner = arr
+                        .iter()
+                        .take(5)
+                        .filter_map(|item| item.as_str())
+                        .collect::<Vec<_>>()
+                        .join("、");
+                    if !inner.is_empty() {
+                        parts.push(format!("{}={}", key, inner));
+                    }
+                } else {
+                    parts.push(format!("{}={}", key, val));
+                }
+            }
+            if !parts.is_empty() {
+                return format!("- {}: {}\n", label, parts.join("；"));
+            }
+        }
+    }
+    format!("- {}: {}\n", label, value)
+}
+
+/// Fetch the applied genre template settings as generation context.
+pub fn fetch_genre_template_context(conn: &rusqlite::Connection) -> String {
+    let fields = [
+        ("genre_name", "题材"),
+        ("world_framework", "世界观框架"),
+        ("volume_rhythm", "卷节奏"),
+        ("character_archetypes", "角色原型"),
+        ("thrill_params", "爽感参数"),
+        ("taboo_rules", "题材禁忌"),
+        ("naming_style", "命名风格"),
+        ("naming_examples", "命名示例"),
+    ];
+    let mut text = String::from("【已应用题材模板】\n");
+    let mut has_any = false;
+    for (key, label) in fields {
+        if let Some(value) = fetch_project_setting(conn, key) {
+            if !value.trim().is_empty() {
+                text.push_str(&compact_json_field(label, &value));
+                has_any = true;
+            }
+        }
+    }
+    if has_any {
+        text
+    } else {
+        String::new()
+    }
+}
+
 /// Fetch volume outline context for the chapter's volume.
 pub fn fetch_volume_outline(conn: &rusqlite::Connection, chapter_number: i64) -> String {
     // Find which volume this chapter belongs to (heuristic: 10 chapters per volume)
@@ -1015,15 +1082,8 @@ pub fn fetch_relationship_states(conn: &rusqlite::Connection) -> String {
 
 /// Fetch style guide from project settings.
 pub fn fetch_style_guide(conn: &rusqlite::Connection) -> String {
-    let result = conn.query_row(
-        "SELECT value FROM project_settings WHERE key = 'style_profile'",
-        [],
-        |row| row.get::<_, String>(0),
-    );
-
-    match result {
-        Ok(style_json) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&style_json) {
+    if let Some(style_json) = fetch_project_setting(conn, "style_profile") {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&style_json) {
                 let mut text = String::from("【文风档案】\n");
                 if let Some(name) = val.get("name").and_then(|n| n.as_str()) {
                     text.push_str(&format!("风格: {}\n", name));
@@ -1043,9 +1103,34 @@ pub fn fetch_style_guide(conn: &rusqlite::Connection) -> String {
             } else {
                 String::new()
             }
+    } else {
+        let name = fetch_project_setting(conn, "style_profile_name");
+        let preferred = fetch_project_setting(conn, "preferred_patterns");
+        let anti_ai = fetch_project_setting(conn, "anti_ai_features");
+        let banned = fetch_project_setting(conn, "banned_patterns");
+        if name.is_none() && preferred.is_none() && anti_ai.is_none() && banned.is_none() {
+            return String::new();
         }
-        Err(_) => String::new(),
+        let mut text = String::from("【文风档案】\n");
+        if let Some(value) = name {
+            text.push_str(&format!("风格: {}\n", value));
+        }
+        if let Some(value) = preferred {
+            text.push_str(&compact_json_field("偏好模式", &value));
+        }
+        if let Some(value) = anti_ai {
+            text.push_str(&compact_json_field("反AI特征", &value));
+        }
+        if let Some(value) = banned {
+            text.push_str(&compact_json_field("禁用模式", &value));
+        }
+        text
     }
+}
+
+/// Alias for generation prompts; kept separate for readability at call sites.
+pub fn fetch_style_profile_context(conn: &rusqlite::Connection) -> String {
+    fetch_style_guide(conn)
 }
 
 /// Fetch de-AI rules as a formatted string for voice filter / prose expert.

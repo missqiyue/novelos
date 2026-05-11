@@ -419,6 +419,8 @@ pub async fn run_chapter_pipeline(
         soul_refs,
         relationship_states_ctx,
         style_guide,
+        genre_template_ctx,
+        style_profile_ctx,
         de_ai_rules_ctx,
         writing_patterns_ctx,
         intent_filter,
@@ -437,6 +439,8 @@ pub async fn run_chapter_pipeline(
         let soul_refs = recall::fetch_soul_templates(conn);
         let relationship_states_ctx = recall::fetch_relationship_states(conn);
         let style_guide = recall::fetch_style_guide(conn);
+        let genre_template_ctx = recall::fetch_genre_template_context(conn);
+        let style_profile_ctx = recall::fetch_style_profile_context(conn);
         let de_ai_rules_ctx = recall::fetch_de_ai_rules_summary(conn);
 
         // Fetch writing patterns from global DB, filtered by project genre
@@ -522,6 +526,8 @@ pub async fn run_chapter_pipeline(
             soul_refs,
             relationship_states_ctx,
             style_guide,
+            genre_template_ctx,
+            style_profile_ctx,
             de_ai_rules_ctx,
             writing_patterns_ctx,
             intent_filter,
@@ -569,6 +575,7 @@ pub async fn run_chapter_pipeline(
     {
         let mut vars = HashMap::new();
         vars.insert("genre".to_string(), genre.clone());
+        vars.insert("genre_template".to_string(), genre_template_ctx.clone());
         vars.insert("current_volume".to_string(), "1".to_string());
         vars.insert("chapter_number".to_string(), chapter_number.to_string());
         vars.insert(
@@ -636,6 +643,7 @@ pub async fn run_chapter_pipeline(
         let task_card = outputs[0].clone().unwrap_or_default();
         let mut vars = HashMap::new();
         vars.insert("task_card".to_string(), task_card);
+        vars.insert("genre_template".to_string(), genre_template_ctx.clone());
         vars.insert("canon_rules".to_string(), canon_rules_text(&lt));
         vars.insert("character_states".to_string(), char_states_text(&lt));
         vars.insert("prev_summaries".to_string(), snapshot_text(&lt));
@@ -782,6 +790,8 @@ pub async fn run_chapter_pipeline(
         vars.insert("chapter_outline".to_string(), chapter_outline);
         vars.insert("canon_rules".to_string(), canon_rules_text(&lt));
         vars.insert("prev_summary".to_string(), prev_summary);
+        vars.insert("genre_template".to_string(), genre_template_ctx.clone());
+        vars.insert("style_profile".to_string(), style_profile_ctx.clone());
         vars.insert("min_words".to_string(), "2000".to_string());
         vars.insert("max_words".to_string(), "4000".to_string());
         vars.insert("soul_refs".to_string(), soul_refs_text());
