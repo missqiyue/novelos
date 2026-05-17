@@ -1179,6 +1179,7 @@ pub fn update_character(
     identity_core: Option<String>,
     persona_core: Option<String>,
     core_motivation: Option<String>,
+    taboo_rules: Option<String>,
 ) -> Result<(), String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
@@ -1222,6 +1223,13 @@ pub fn update_character(
     if let Some(v) = core_motivation {
         conn.execute(
             "UPDATE characters SET core_motivation = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![v, now, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    if let Some(v) = taboo_rules {
+        conn.execute(
+            "UPDATE characters SET taboo_rules = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![v, now, id],
         )
         .map_err(|e| e.to_string())?;

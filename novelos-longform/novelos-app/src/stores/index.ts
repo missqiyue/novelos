@@ -393,6 +393,7 @@ interface CharacterState {
     identityCore?: string,
     personaCore?: string,
     coreMotivation?: string,
+    tabooRules?: string,
   ) => Promise<void>;
   remove: (id: string) => Promise<void>;
 }
@@ -422,7 +423,7 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
       return null;
     }
   },
-  update: async (id, name, soulJson, roleType, identityCore, personaCore, coreMotivation) => {
+  update: async (id, name, soulJson, roleType, identityCore, personaCore, coreMotivation, tabooRules) => {
     try {
       await chapterApi.updateCharacter(
         id,
@@ -432,6 +433,7 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
         identityCore,
         personaCore,
         coreMotivation,
+        tabooRules,
       );
       await get().fetch();
     } catch (e: any) {
@@ -601,6 +603,7 @@ interface AgentState {
   lastResult: AgentRunResult | null;
   logs: AgentLogEntry[];
   error: string | null;
+  clearError: () => void;
   runAgent: (
     agentName: string,
     variables: Record<string, string>,
@@ -613,6 +616,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   lastResult: null,
   logs: [],
   error: null,
+  clearError: () => set({ error: null }),
   runAgent: async (agentName, variables) => {
     set({ running: true, error: null });
     try {

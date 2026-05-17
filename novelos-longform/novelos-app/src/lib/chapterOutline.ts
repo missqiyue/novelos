@@ -15,6 +15,18 @@ export interface ChapterOutlineSections {
   总字数估算?: number;
 }
 
+export function emptyChapterOutlineSections(): ChapterOutlineSections {
+  return {
+    开篇场景: "",
+    情节点列表: [],
+    角色出场: [],
+    关键对话: [],
+    转折点: "",
+    章末状态: "",
+    总字数估算: undefined,
+  };
+}
+
 function stripJsonFence(content: string): string {
   const trimmed = content.trim();
   const fenced = trimmed.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
@@ -159,7 +171,7 @@ function normalizeOutlineData(data: Record<string, unknown>): ChapterOutlineSect
     关键对话: normalizeDialogues(data.关键对话 ?? data.key_dialogues),
     转折点: stringifyInline(data.转折点 ?? data.turning_point),
     章末状态: stringifyInline(data.章末状态 ?? data.ending_state ?? data.chapter_end_state),
-    总字数估算: asNumber(data.total_estimated_words) || undefined,
+    总字数估算: asNumber(data.总字数估算 ?? data.total_estimated_words) || undefined,
   };
 }
 
@@ -203,4 +215,20 @@ export function parseOutlineContent(content: string): ChapterOutlineSections | n
     转折点: sections["转折点"] || "",
     章末状态: sections["章末状态"] || "",
   };
+}
+
+export function serializeOutlineContent(sections: ChapterOutlineSections): string {
+  return JSON.stringify(
+    {
+      开篇场景: sections.开篇场景,
+      情节点列表: sections.情节点列表,
+      角色出场: sections.角色出场,
+      关键对话: sections.关键对话,
+      转折点: sections.转折点,
+      章末状态: sections.章末状态,
+      总字数估算: sections.总字数估算,
+    },
+    null,
+    2,
+  );
 }

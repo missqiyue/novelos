@@ -7,6 +7,7 @@ import { checkForUpdate, installUpdate } from "../../lib/updater";
 import type { UpdateInfo } from "../../lib/updater";
 import {
   Settings,
+  ArrowLeft,
   Key,
   Save,
   CheckCircle,
@@ -21,6 +22,7 @@ import {
 export function SettingsPage() {
   const navigate = useNavigate();
   const { projectId } = useParams();
+  const isProjectSettings = Boolean(projectId);
   const { project, updateProject } = useProjectStore();
   const { config, fetchConfig, updateConfig, saveConfigToDb } = useLlmStore();
   const {
@@ -50,8 +52,10 @@ export function SettingsPage() {
   }, [fetchConfig]);
 
   useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+    if (isProjectSettings) {
+      fetchStats();
+    }
+  }, [fetchStats, isProjectSettings]);
 
   useEffect(() => {
     if (config) {
@@ -75,7 +79,7 @@ export function SettingsPage() {
   }, [project]);
 
   useEffect(() => {
-    if (!platform.isTauri) return;
+    if (!platform.isTauri || !isProjectSettings) return;
 
     let unlisten: (() => void) | undefined;
     (async () => {
@@ -104,7 +108,7 @@ export function SettingsPage() {
     return () => {
       unlisten?.();
     };
-  }, []);
+  }, [isProjectSettings]);
 
   const handleSaveLlm = async () => {
     await updateConfig({
@@ -192,105 +196,119 @@ export function SettingsPage() {
 
   return (
     <div className="p-6 max-w-2xl">
-      <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-4">
-        <Settings size={22} className="text-indigo-600" />
-        设置
-      </h1>
-
-      {/* Sub-navigation */}
-      <div className="grid grid-cols-2 gap-2 mb-6">
-        {[
-          {
-            to: "agent-logs",
-            label: "运行日志",
-            icon: Activity,
-            desc: "查看 Agent、LLM 与系统事件日志",
-          },
-        ].map(({ to, label, icon: Icon, desc }) => (
-          <button
-            key={to}
-            onClick={() => {
-              if (!projectId) return;
-              navigate(`/project/${projectId}/${to}`);
-            }}
-            className="flex items-start gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors text-left"
-          >
-            <Icon size={18} className="text-indigo-500 mt-0.5 shrink-0" />
-            <div>
-              <div className="text-sm font-medium text-gray-900">{label}</div>
-              <div className="text-xs text-gray-400 mt-0.5">{desc}</div>
-            </div>
-            <ArrowRight size={14} className="text-gray-300 ml-auto shrink-0 mt-1" />
-          </button>
-        ))}
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => navigate(isProjectSettings ? `/project/${projectId}/dashboard` : "/")}
+          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+          title={isProjectSettings ? "返回看板" : "返回书架"}
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <Settings size={22} className="text-indigo-600" />
+          设置
+        </h1>
       </div>
 
-      <div className="mb-6 p-4 rounded-lg border border-indigo-100 bg-indigo-50/60">
-        <p className="text-sm font-medium text-indigo-900">配置入口已调整</p>
-        <p className="text-xs text-indigo-700 mt-1">
-          去AI规则、SOUL模板、题材模板已归入“全局共享资源库”；通知偏好建议从顶部通知铃铛进入。
-        </p>
-        <div className="flex flex-wrap gap-2 mt-3">
-          <button
-            onClick={() => {
-              if (!projectId) return;
-              navigate(`/project/${projectId}/global-resources`);
-            }}
-            className="px-3 py-1.5 text-xs rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-100"
-          >
-            打开全局共享资源库
-          </button>
-        </div>
-      </div>
-
-      {/* Project Settings */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold text-gray-900 mb-4">项目设置</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">项目名称</label>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={projectTitle}
-                onChange={(e) => setProjectTitle(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+      {isProjectSettings ? (
+        <>
+          {/* Sub-navigation */}
+          <div className="grid grid-cols-2 gap-2 mb-6">
+            {[
+              {
+                to: "agent-logs",
+                label: "运行日志",
+                icon: Activity,
+                desc: "查看 Agent、LLM 与系统事件日志",
+              },
+            ].map(({ to, label, icon: Icon, desc }) => (
               <button
-                onClick={handleSaveProject}
-                className="flex items-center gap-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
+                key={to}
+                onClick={() => navigate(`/project/${projectId}/${to}`)}
+                className="flex items-start gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors text-left"
               >
-                <Save size={14} />
-                保存
+                <Icon size={18} className="text-indigo-500 mt-0.5 shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{label}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{desc}</div>
+                </div>
+                <ArrowRight size={14} className="text-gray-300 ml-auto shrink-0 mt-1" />
+              </button>
+            ))}
+          </div>
+
+          <div className="mb-6 p-4 rounded-lg border border-indigo-100 bg-indigo-50/60">
+            <p className="text-sm font-medium text-indigo-900">配置入口已调整</p>
+            <p className="text-xs text-indigo-700 mt-1">
+              去AI规则、SOUL模板、题材模板已归入“全局共享资源库”；通知偏好建议从顶部通知铃铛进入。
+            </p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <button
+                onClick={() => navigate(`/project/${projectId}/global-resources`)}
+                className="px-3 py-1.5 text-xs rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+              >
+                打开全局共享资源库
               </button>
             </div>
           </div>
-          {project && (
-            <div className="grid grid-cols-2 gap-4 text-sm">
+
+          {/* Project Settings */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <h2 className="font-semibold text-gray-900 mb-4">项目设置</h2>
+            <div className="space-y-4">
               <div>
-                <span className="text-gray-500">状态:</span>{" "}
-                <span className="font-medium">{project.status}</span>
+                <label className="block text-sm font-medium text-gray-700 mb-1">项目名称</label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={projectTitle}
+                    onChange={(e) => setProjectTitle(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    onClick={handleSaveProject}
+                    className="flex items-center gap-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
+                  >
+                    <Save size={14} />
+                    保存
+                  </button>
+                </div>
               </div>
-              <div>
-                <span className="text-gray-500">创建时间:</span>{" "}
-                <span className="font-medium">
-                  {new Date(project.created_at).toLocaleDateString()}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">目标字数:</span>{" "}
-                <span className="font-medium">
-                  {project.target_words?.toLocaleString() || "未设置"}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">目标卷数:</span>{" "}
-                <span className="font-medium">{project.target_volumes || "未设置"}</span>
-              </div>
+              {project && (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">状态:</span>{" "}
+                    <span className="font-medium">{project.status}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">创建时间:</span>{" "}
+                    <span className="font-medium">
+                      {new Date(project.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">目标字数:</span>{" "}
+                    <span className="font-medium">
+                      {project.target_words?.toLocaleString() || "未设置"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">目标卷数:</span>{" "}
+                    <span className="font-medium">{project.target_volumes || "未设置"}</span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
+        </>
+      ) : (
+        <div className="mb-6 p-4 rounded-lg border border-amber-100 bg-amber-50/70">
+          <p className="text-sm font-medium text-amber-900">全局设置</p>
+          <p className="text-xs text-amber-700 mt-1">
+            这里可以先配置 LLM 和软件更新，不需要创建或打开项目。配置保存后，快速开始和所有 AI 功能都会使用同一套模型参数。
+          </p>
         </div>
-      </div>
+      )}
 
       {/* LLM Settings */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -429,6 +447,7 @@ export function SettingsPage() {
               </div>
             </div>
           </div>
+          {isProjectSettings && (
           <div className="border-t border-gray-100 pt-4 mt-4">
             <h3 className="text-sm font-semibold text-gray-800 mb-3">RAG 索引管理</h3>
             <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
@@ -532,6 +551,7 @@ export function SettingsPage() {
               </div>
             </div>
           </div>
+          )}
           <button
             onClick={handleSaveLlm}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
@@ -542,8 +562,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* Backup Section */}
-      <BackupSection />
+      {isProjectSettings && <BackupSection />}
 
       {/* Update Section */}
       <UpdateSection />

@@ -30,8 +30,8 @@ const AGENT_LIST: &[(&str, &str)] = &[
         "genre_match",
         "题材识别 — 分析小说描述，匹配最合适的题材模板",
     ),
-    ("volume_outline", "卷纲规划 — 根据描述和题材生成分卷结构"),
-    ("book_outline", "大纲生成 — 根据卷纲生成全书和分卷大纲"),
+    ("volume_outline", "卷纲规划 — 根据全书大纲拆分分卷结构"),
+    ("book_outline", "大纲生成 — 根据角色/SOUL生成全书大纲"),
     ("style_extractor", "文风提取 — 分析文本或作品的写作风格特征"),
     (
         "name_generator",
@@ -103,9 +103,19 @@ pub async fn run_agent(
     log::info!("run_agent '{}' starting", agent_name);
     let (system_prompt, user_template) = get_prompts_with_db_fallback(&db, &agent_name)?;
 
+    let mut system_prompt = system_prompt.to_string();
     let mut user_prompt = user_template.to_string();
     for (key, value) in &variables {
+        system_prompt = system_prompt.replace(&format!("{{{key}}}"), value);
         user_prompt = user_prompt.replace(&format!("{{{key}}}"), value);
+    }
+    if matches!(agent_name.as_str(), "draft_writer" | "voice_filter") {
+        if let Some(de_ai_rules) = variables.get("de_ai_rules").filter(|value| !value.trim().is_empty()) {
+            if !system_prompt.contains(de_ai_rules) && !user_prompt.contains(de_ai_rules) {
+                system_prompt.push_str("\n\n项目去AI规则（必须遵守）：\n");
+                system_prompt.push_str(de_ai_rules);
+            }
+        }
     }
 
     let (config, client) = {
@@ -122,7 +132,7 @@ pub async fn run_agent(
     let messages = vec![
         ChatMessage {
             role: "system".to_string(),
-            content: system_prompt.to_string(),
+            content: system_prompt,
         },
         ChatMessage {
             role: "user".to_string(),
@@ -134,16 +144,20 @@ pub async fn run_agent(
     let project_id = db.current_project_id().unwrap_or_default();
     let request_id = uuid::Uuid::new_v4().to_string();
     log::info!("run_agent '{}' creating LLM call log", agent_name);
-    let llm_call_id = create_llm_call_log(
-        &db,
-        &project_id,
-        &request_id,
-        Some(&agent_name),
-        &config.provider,
-        &config.model,
-        "running",
-        None,
-    )?;
+    let llm_call_id = if project_id.is_empty() {
+        None
+    } else {
+        Some(create_llm_call_log(
+            &db,
+            &project_id,
+            &request_id,
+            Some(&agent_name),
+            &config.provider,
+            &config.model,
+            "running",
+            None,
+        )?)
+    };
     log::info!(
         "run_agent '{}' calling LLM chat (provider={}, model={})",
         agent_name,
@@ -160,15 +174,17 @@ pub async fn run_agent(
 
     match result {
         Ok(response) => {
-            let _ = log_llm_response_events(
-                &db,
-                &request_id,
-                &project_id,
-                Some(&agent_name),
-                &config.provider,
-                &response.model,
-                &response,
-            );
+            if !project_id.is_empty() {
+                let _ = log_llm_response_events(
+                    &db,
+                    &request_id,
+                    &project_id,
+                    Some(&agent_name),
+                    &config.provider,
+                    &response.model,
+                    &response,
+                );
+            }
             let _ = log_agent_execution(
                 &db,
                 &project_id,
@@ -180,17 +196,19 @@ pub async fn run_agent(
                 response.total_tokens as i64,
                 None,
             );
-            let _ = finalize_llm_call_log(
-                &db,
-                &llm_call_id,
-                &response.model,
-                response.prompt_tokens as i64,
-                response.completion_tokens as i64,
-                response.total_tokens as i64,
-                duration_ms as i64,
-                "success",
-                None,
-            );
+            if let Some(llm_call_id) = &llm_call_id {
+                let _ = finalize_llm_call_log(
+                    &db,
+                    llm_call_id,
+                    &response.model,
+                    response.prompt_tokens as i64,
+                    response.completion_tokens as i64,
+                    response.total_tokens as i64,
+                    duration_ms as i64,
+                    "success",
+                    None,
+                );
+            }
 
             Ok(AgentRunResult {
                 agent_name,
@@ -203,17 +221,19 @@ pub async fn run_agent(
             })
         }
         Err(e) => {
-            let _ = finalize_llm_call_log(
-                &db,
-                &llm_call_id,
-                &config.model,
-                0,
-                0,
-                0,
-                duration_ms as i64,
-                "failed",
-                Some(&e.to_string()),
-            );
+            if let Some(llm_call_id) = &llm_call_id {
+                let _ = finalize_llm_call_log(
+                    &db,
+                    llm_call_id,
+                    &config.model,
+                    0,
+                    0,
+                    0,
+                    duration_ms as i64,
+                    "failed",
+                    Some(&e.to_string()),
+                );
+            }
             let _ = log_agent_execution(
                 &db,
                 &project_id,

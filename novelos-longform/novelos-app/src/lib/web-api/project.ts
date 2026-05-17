@@ -29,9 +29,10 @@ export const projectApi = {
 
     webDb.run(
       `INSERT INTO projects (id, title, genre_id, logline, target_words, target_volumes, min_chapter_words, max_chapter_words, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 2000, 5000, 'planning', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planning', ?, ?)`,
       [id, input.title, nullIfUndefined(input.genre_id), nullIfUndefined(input.logline),
-       nullIfUndefined(input.target_words), nullIfUndefined(input.target_volumes), ts, ts],
+       nullIfUndefined(input.target_words), nullIfUndefined(input.target_volumes),
+       input.min_chapter_words ?? 2000, Math.max(input.max_chapter_words ?? 5000, input.min_chapter_words ?? 2000), ts, ts],
     );
 
     const maxOrder = webDb.get<{ c: number }>("SELECT COALESCE(MAX(display_order), 0) as c FROM bookshelf", [], "global");

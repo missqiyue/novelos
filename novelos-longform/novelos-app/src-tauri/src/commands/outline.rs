@@ -19,10 +19,11 @@ pub struct BookOutlineInfo {
 pub fn get_book_outline(db: State<'_, DbState>) -> Result<Option<BookOutlineInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
     let result = conn.query_row(
-        "SELECT id, version, content_json, change_reason, status, created_at, updated_at FROM book_outlines ORDER BY version DESC LIMIT 1",
-        [],
+        "SELECT id, version, content_json, change_reason, status, created_at, updated_at FROM book_outlines WHERE project_id = ?1 ORDER BY version DESC, updated_at DESC LIMIT 1",
+        [project_id],
         |row| Ok(BookOutlineInfo {
             id: row.get(0)?,
             version: row.get(1)?,
@@ -49,15 +50,15 @@ pub fn save_book_outline(
 ) -> Result<BookOutlineInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
-    let project_id = db.current_project_id().unwrap_or_default();
 
     let next_version: i64 = conn
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) + 1 FROM book_outlines",
-            [],
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM book_outlines WHERE project_id = ?1",
+            [db.current_project_id().ok_or("No project open")?],
             |r| r.get(0),
         )
         .unwrap_or(1);
@@ -97,13 +98,14 @@ pub struct VolumeOutlineInfo {
 pub fn list_volume_outlines(db: State<'_, DbState>) -> Result<Vec<VolumeOutlineInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
     let mut stmt = conn
-        .prepare("SELECT id, volume_id, version, content_json, change_reason, status, created_at, updated_at FROM volume_outlines ORDER BY volume_id")
+        .prepare("SELECT id, volume_id, version, content_json, change_reason, status, created_at, updated_at FROM volume_outlines WHERE project_id = ?1 ORDER BY volume_id")
         .map_err(|e| e.to_string())?;
 
     let items = stmt
-        .query_map([], |row| {
+        .query_map([project_id], |row| {
             Ok(VolumeOutlineInfo {
                 id: row.get(0)?,
                 volume_id: row.get(1)?,
@@ -131,15 +133,15 @@ pub fn save_volume_outline(
 ) -> Result<VolumeOutlineInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
-    let project_id = db.current_project_id().unwrap_or_default();
 
     let next_version: i64 = conn
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) + 1 FROM volume_outlines WHERE volume_id = ?1",
-            [&volume_id],
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM volume_outlines WHERE project_id = ?1 AND volume_id = ?2",
+            [db.current_project_id().ok_or("No project open")?, volume_id.clone()],
             |r| r.get(0),
         )
         .unwrap_or(1);
@@ -182,13 +184,14 @@ pub struct ChapterOutlineInfo {
 pub fn list_chapter_outlines(db: State<'_, DbState>) -> Result<Vec<ChapterOutlineInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
     let mut stmt = conn
-        .prepare("SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines ORDER BY chapter_number")
+        .prepare("SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines WHERE project_id = ?1 ORDER BY chapter_number")
         .map_err(|e| e.to_string())?;
 
     let items = stmt
-        .query_map([], |row| {
+        .query_map([project_id], |row| {
             Ok(ChapterOutlineInfo {
                 id: row.get(0)?,
                 chapter_number: row.get(1)?,
@@ -216,21 +219,23 @@ pub fn get_latest_chapter_outline(
 ) -> Result<Option<ChapterOutlineInfo>, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
-    get_latest_chapter_outline_inner(conn, chapter_number)
+    get_latest_chapter_outline_inner(conn, &project_id, chapter_number)
 }
 
 pub fn get_latest_chapter_outline_inner(
     conn: &rusqlite::Connection,
+    project_id: &str,
     chapter_number: i64,
 ) -> Result<Option<ChapterOutlineInfo>, String> {
     conn.query_row(
         "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at
          FROM chapter_outlines
-         WHERE chapter_number = ?1
+         WHERE project_id = ?1 AND chapter_number = ?2
          ORDER BY version DESC, updated_at DESC
          LIMIT 1",
-        [chapter_number],
+        rusqlite::params![project_id, chapter_number],
         |row| {
             Ok(ChapterOutlineInfo {
                 id: row.get(0)?,
@@ -266,8 +271,8 @@ pub fn save_generated_chapter_outline_inner(
     let now = chrono::Utc::now().to_rfc3339();
     let next_version: i64 = conn
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) + 1 FROM chapter_outlines WHERE chapter_number = ?1",
-            [chapter_number],
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM chapter_outlines WHERE project_id = ?1 AND chapter_number = ?2",
+            rusqlite::params![project_id, chapter_number],
             |r| r.get(0),
         )
         .unwrap_or(1);
@@ -313,15 +318,15 @@ pub fn save_chapter_outline(
 ) -> Result<ChapterOutlineInfo, String> {
     let project_conn = db.project.lock().map_err(|e| e.to_string())?;
     let conn = project_conn.as_ref().ok_or("No project open")?;
+    let project_id = db.current_project_id().ok_or("No project open")?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
-    let project_id = db.current_project_id().unwrap_or_default();
 
     let next_version: i64 = conn
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) + 1 FROM chapter_outlines WHERE chapter_number = ?1",
-            [chapter_number],
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM chapter_outlines WHERE project_id = ?1 AND chapter_number = ?2",
+            rusqlite::params![project_id, chapter_number],
             |r| r.get(0),
         )
         .unwrap_or(1);

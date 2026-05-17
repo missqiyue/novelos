@@ -20,8 +20,10 @@ import type {
 
 export const outlineApi = {
   async getBookOutline(): Promise<BookOutlineInfo | null> {
+    const projectId = requireProjectId();
     return webDb.get<BookOutlineInfo>(
-      "SELECT id, version, content_json, change_reason, status, created_at, updated_at FROM book_outlines ORDER BY version DESC LIMIT 1",
+      "SELECT id, version, content_json, change_reason, status, created_at, updated_at FROM book_outlines WHERE project_id = ? ORDER BY version DESC, updated_at DESC LIMIT 1",
+      [projectId],
     );
   },
 
@@ -43,8 +45,10 @@ export const outlineApi = {
   },
 
   async listVolumeOutlines(): Promise<VolumeOutlineInfo[]> {
+    const projectId = requireProjectId();
     return webDb.all<VolumeOutlineInfo>(
-      "SELECT id, volume_id, version, content_json, change_reason, status, created_at, updated_at FROM volume_outlines ORDER BY volume_id",
+      "SELECT id, volume_id, version, content_json, change_reason, status, created_at, updated_at FROM volume_outlines WHERE project_id = ? ORDER BY volume_id",
+      [projectId],
     );
   },
 
@@ -80,16 +84,19 @@ export const outlineApi = {
   },
 
   async listChapterOutlines(): Promise<ChapterOutlineInfo[]> {
+    const projectId = requireProjectId();
     return webDb.all<ChapterOutlineInfo>(
-      "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines ORDER BY chapter_number",
+      "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines WHERE project_id = ? ORDER BY chapter_number",
+      [projectId],
     );
   },
 
   async getLatestChapterOutline(chapterNumber: number): Promise<ChapterOutlineInfo | null> {
+    const projectId = requireProjectId();
     return (
       webDb.get<ChapterOutlineInfo>(
-        "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines WHERE chapter_number = ? ORDER BY version DESC, updated_at DESC LIMIT 1",
-        [chapterNumber],
+        "SELECT id, chapter_number, task_id, version, content_json, confirmed, change_reason, status, created_at, updated_at FROM chapter_outlines WHERE project_id = ? AND chapter_number = ? ORDER BY version DESC, updated_at DESC LIMIT 1",
+        [projectId, chapterNumber],
       ) ?? null
     );
   },

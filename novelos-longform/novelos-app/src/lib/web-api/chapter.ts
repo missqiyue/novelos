@@ -222,7 +222,7 @@ export const chapterApi = {
 
   async updateCharacter(
     id: string, name?: string, soulJson?: string, roleType?: string,
-    identityCore?: string, personaCore?: string, coreMotivation?: string,
+    identityCore?: string, personaCore?: string, coreMotivation?: string, tabooRules?: string,
   ): Promise<void> {
     const ts = now();
     if (name !== undefined) webDb.run("UPDATE characters SET name = ?, updated_at = ? WHERE id = ?", [name, ts, id]);
@@ -231,6 +231,7 @@ export const chapterApi = {
     if (identityCore !== undefined) webDb.run("UPDATE characters SET identity_core = ?, updated_at = ? WHERE id = ?", [identityCore, ts, id]);
     if (personaCore !== undefined) webDb.run("UPDATE characters SET persona_core = ?, updated_at = ? WHERE id = ?", [personaCore, ts, id]);
     if (coreMotivation !== undefined) webDb.run("UPDATE characters SET core_motivation = ?, updated_at = ? WHERE id = ?", [coreMotivation, ts, id]);
+    if (tabooRules !== undefined) webDb.run("UPDATE characters SET taboo_rules = ?, updated_at = ? WHERE id = ?", [tabooRules, ts, id]);
   },
 
   async deleteCharacter(id: string): Promise<void> {

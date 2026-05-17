@@ -25,6 +25,8 @@ pub struct CreateProjectInput {
     pub logline: Option<String>,
     pub target_words: Option<i64>,
     pub target_volumes: Option<i64>,
+    pub min_chapter_words: Option<i64>,
+    pub max_chapter_words: Option<i64>,
 }
 
 #[tauri::command]
@@ -43,9 +45,12 @@ pub fn create_project(
         let project_conn = db.project.lock().map_err(|e| e.to_string())?;
         let conn = project_conn.as_ref().ok_or("No project DB open")?;
 
+        let min_chapter_words = input.min_chapter_words.unwrap_or(2000).max(1);
+        let max_chapter_words = input.max_chapter_words.unwrap_or(5000).max(min_chapter_words);
+
         conn.execute(
-            "INSERT INTO projects (id, title, genre_id, logline, target_words, target_volumes, min_chapter_words, max_chapter_words, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 2000, 5000, 'planning', ?7, ?8)",
-            rusqlite::params![id, input.title, input.genre_id, input.logline, input.target_words, input.target_volumes, now, now],
+            "INSERT INTO projects (id, title, genre_id, logline, target_words, target_volumes, min_chapter_words, max_chapter_words, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'planning', ?9, ?10)",
+            rusqlite::params![id, input.title, input.genre_id, input.logline, input.target_words, input.target_volumes, min_chapter_words, max_chapter_words, now, now],
         )
         .map_err(|e| e.to_string())?;
 

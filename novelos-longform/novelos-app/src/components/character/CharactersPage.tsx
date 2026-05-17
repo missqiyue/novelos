@@ -26,7 +26,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   dead: { label: "已死", color: "bg-red-100 text-red-600" },
 };
 
-interface SoulData {
+interface SoulSections {
   personality?: {
     core_traits?: string[];
     emotional_range?: string;
@@ -55,12 +55,50 @@ interface SoulData {
   };
 }
 
+interface SoulData extends SoulSections {
+  profile?: {
+    description?: string;
+    [key: string]: unknown;
+  };
+  matched_template?: string;
+  customization?: SoulSections;
+}
+
 function parseSoulJson(soulJson: string): SoulData {
   try {
     return JSON.parse(soulJson || "{}");
   } catch {
     return {};
   }
+}
+
+function getSoulSections(soul: SoulData): SoulSections {
+  return {
+    personality: soul.personality || soul.customization?.personality,
+    speech: soul.speech || soul.customization?.speech,
+    behavior: soul.behavior || soul.customization?.behavior,
+    relationships: soul.relationships || soul.customization?.relationships,
+  };
+}
+
+function getSoulDescription(soulJson: string): string {
+  const description = parseSoulJson(soulJson).profile?.description;
+  return typeof description === "string" ? description : "";
+}
+
+function withSoulDescription(soulJson: string, description: string): string {
+  const soul = parseSoulJson(soulJson);
+  const trimmed = description.trim();
+  if (trimmed) {
+    soul.profile = {
+      ...(soul.profile || {}),
+      description: trimmed,
+    };
+  } else if (soul.profile) {
+    const { description: _description, ...profile } = soul.profile;
+    soul.profile = Object.keys(profile).length ? profile : undefined;
+  }
+  return JSON.stringify(soul, null, 2);
 }
 
 function SoulEditor({
@@ -71,13 +109,25 @@ function SoulEditor({
   onChange: (json: string) => void;
 }) {
   const soul = parseSoulJson(soulJson);
+  const sections = getSoulSections(soul);
   const [activeTab, setActiveTab] = useState<
     "personality" | "speech" | "behavior" | "relationships"
   >("personality");
 
   const updateField = (section: keyof SoulData, field: string, value: string | string[]) => {
     const updated = { ...soul };
-    (updated[section] as any) = { ...((updated[section] as any) || {}), [field]: value };
+    const currentSection = (sections[section as keyof SoulSections] || {}) as Record<
+      string,
+      unknown
+    >;
+    if (updated.customization) {
+      updated.customization = {
+        ...updated.customization,
+        [section]: { ...currentSection, [field]: value },
+      };
+    } else {
+      (updated[section] as any) = { ...currentSection, [field]: value };
+    }
     onChange(JSON.stringify(updated, null, 2));
   };
 
@@ -112,7 +162,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">核心性格特征（逗号分隔）</label>
             <input
               type="text"
-              value={(soul.personality?.core_traits || []).join(", ")}
+              value={(sections.personality?.core_traits || []).join(", ")}
               onChange={(e) =>
                 updateField(
                   "personality",
@@ -131,7 +181,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">情感范围</label>
             <input
               type="text"
-              value={soul.personality?.emotional_range || ""}
+              value={sections.personality?.emotional_range || ""}
               onChange={(e) => updateField("personality", "emotional_range", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -140,7 +190,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">压力反应</label>
             <input
               type="text"
-              value={soul.personality?.stress_response || ""}
+              value={sections.personality?.stress_response || ""}
               onChange={(e) => updateField("personality", "stress_response", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -149,7 +199,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">成长方向</label>
             <input
               type="text"
-              value={soul.personality?.growth_direction || ""}
+              value={sections.personality?.growth_direction || ""}
               onChange={(e) => updateField("personality", "growth_direction", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -163,7 +213,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">语调</label>
             <input
               type="text"
-              value={soul.speech?.tone || ""}
+              value={sections.speech?.tone || ""}
               onChange={(e) => updateField("speech", "tone", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -172,7 +222,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">词汇风格</label>
             <input
               type="text"
-              value={soul.speech?.vocabulary || ""}
+              value={sections.speech?.vocabulary || ""}
               onChange={(e) => updateField("speech", "vocabulary", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -181,7 +231,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">句式特征</label>
             <input
               type="text"
-              value={soul.speech?.sentence_pattern || ""}
+              value={sections.speech?.sentence_pattern || ""}
               onChange={(e) => updateField("speech", "sentence_pattern", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -190,7 +240,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">口头禅（逗号分隔）</label>
             <input
               type="text"
-              value={(soul.speech?.catchphrases || []).join(", ")}
+              value={(sections.speech?.catchphrases || []).join(", ")}
               onChange={(e) =>
                 updateField(
                   "speech",
@@ -209,7 +259,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">禁用词（逗号分隔）</label>
             <input
               type="text"
-              value={(soul.speech?.taboo_words || []).join(", ")}
+              value={(sections.speech?.taboo_words || []).join(", ")}
               onChange={(e) =>
                 updateField(
                   "speech",
@@ -232,7 +282,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">姿态特征</label>
             <input
               type="text"
-              value={soul.behavior?.posture || ""}
+              value={sections.behavior?.posture || ""}
               onChange={(e) => updateField("behavior", "posture", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -241,7 +291,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">战斗风格</label>
             <input
               type="text"
-              value={soul.behavior?.fighting_style || ""}
+              value={sections.behavior?.fighting_style || ""}
               onChange={(e) => updateField("behavior", "fighting_style", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -250,7 +300,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">决策模式</label>
             <input
               type="text"
-              value={soul.behavior?.decision_pattern || ""}
+              value={sections.behavior?.decision_pattern || ""}
               onChange={(e) => updateField("behavior", "decision_pattern", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -259,7 +309,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">冲突风格</label>
             <input
               type="text"
-              value={soul.behavior?.conflict_style || ""}
+              value={sections.behavior?.conflict_style || ""}
               onChange={(e) => updateField("behavior", "conflict_style", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -268,7 +318,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">习惯</label>
             <input
               type="text"
-              value={soul.behavior?.habit || ""}
+              value={sections.behavior?.habit || ""}
               onChange={(e) => updateField("behavior", "habit", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -282,7 +332,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">默认立场</label>
             <input
               type="text"
-              value={soul.relationships?.default_stance || ""}
+              value={sections.relationships?.default_stance || ""}
               onChange={(e) => updateField("relationships", "default_stance", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -291,7 +341,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">信任模式</label>
             <input
               type="text"
-              value={soul.relationships?.trust_pattern || ""}
+              value={sections.relationships?.trust_pattern || ""}
               onChange={(e) => updateField("relationships", "trust_pattern", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -300,7 +350,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">冲突反应</label>
             <input
               type="text"
-              value={soul.relationships?.conflict_reaction || ""}
+              value={sections.relationships?.conflict_reaction || ""}
               onChange={(e) => updateField("relationships", "conflict_reaction", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -309,7 +359,7 @@ function SoulEditor({
             <label className="block text-xs text-gray-500 mb-1">忠诚触发</label>
             <input
               type="text"
-              value={soul.relationships?.loyalty_trigger || ""}
+              value={sections.relationships?.loyalty_trigger || ""}
               onChange={(e) => updateField("relationships", "loyalty_trigger", e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
@@ -353,6 +403,8 @@ export function CharactersPage() {
   const [editIdentity, setEditIdentity] = useState("");
   const [editPersona, setEditPersona] = useState("");
   const [editMotivation, setEditMotivation] = useState("");
+  const [editTaboo, setEditTaboo] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editSoulJson, setEditSoulJson] = useState("");
   const [generating, setGenerating] = useState(false);
 
@@ -427,6 +479,8 @@ export function CharactersPage() {
     setEditIdentity(char.identity_core || "");
     setEditPersona(char.persona_core || "");
     setEditMotivation(char.core_motivation || "");
+    setEditTaboo(char.taboo_rules || "");
+    setEditDescription(getSoulDescription(char.soul_json));
     setEditSoulJson(char.soul_json);
   };
 
@@ -436,21 +490,27 @@ export function CharactersPage() {
 
   const saveEdit = async () => {
     if (!editingId) return;
+    const nextSoulJson = withSoulDescription(editSoulJson || "{}", editDescription);
     await update(
       editingId,
       editName,
-      editSoulJson,
+      nextSoulJson,
       editRole,
-      editIdentity || undefined,
-      editPersona || undefined,
-      editMotivation || undefined,
+      editIdentity,
+      editPersona,
+      editMotivation,
+      editTaboo,
     );
     if (selectedCharacter?.id === editingId) {
       select({
         ...selectedCharacter,
         name: editName,
         role_type: editRole,
-        soul_json: editSoulJson,
+        identity_core: editIdentity || null,
+        persona_core: editPersona || null,
+        core_motivation: editMotivation || null,
+        taboo_rules: editTaboo || null,
+        soul_json: nextSoulJson,
       });
     }
     setEditingId(null);
@@ -460,7 +520,15 @@ export function CharactersPage() {
     if (!editingId || !editName) return;
     setGenerating(true);
     try {
-      const userPrompt = `角色名：${editName}\n角色类型：${editRole}\n身份核心：${editIdentity || "待定"}`;
+      const userPrompt = [
+        `角色名：${editName}`,
+        `角色类型：${editRole}`,
+        `身份核心：${editIdentity || "待定"}`,
+        `人格核心：${editPersona || "待定"}`,
+        `核心动机：${editMotivation || "待定"}`,
+        `禁忌规则：${editTaboo || "无"}`,
+        `角色简介：${editDescription || "待定"}`,
+      ].join("\n");
       const result = await chatWithSystem(
         "你是一个角色SOUL（性格-语言-行为）匹配专家。请根据角色基本信息，生成完整的SOUL设定，包含personality、speech、behavior、relationships四个维度。直接输出JSON，不要任何说明。",
         userPrompt,
@@ -471,12 +539,13 @@ export function CharactersPage() {
           .replace(/```\n?/g, "")
           .trim();
         JSON.parse(cleanResult); // validate
-        setEditSoulJson(cleanResult);
+        setEditSoulJson(withSoulDescription(cleanResult, editDescription));
       }
     } catch {
       // AI generation failed, ignore
+    } finally {
+      setGenerating(false);
     }
-    setGenerating(false);
   };
 
   const handleDelete = async (id: string) => {
@@ -731,6 +800,28 @@ export function CharactersPage() {
                   placeholder="如：复仇、守护家人、寻找真相"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">禁忌规则</label>
+                <textarea
+                  value={editTaboo}
+                  onChange={(e) => setEditTaboo(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                  placeholder="如：不会背叛师门、不能主动伤害无辜、忌用特定口头禅"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">角色简介</label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                  placeholder="补充角色出身、当前处境、关键关系或读者第一印象"
+                />
+              </div>
             </div>
 
             {/* SOUL Editor */}
@@ -788,32 +879,28 @@ export function CharactersPage() {
               </div>
             </div>
 
-            {selectedCharacter.identity_core && (
-              <div>
-                <h4 className="text-xs text-gray-500 mb-1">身份核心</h4>
-                <p className="text-sm text-gray-800">{selectedCharacter.identity_core}</p>
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <h4 className="font-medium text-gray-900 text-sm mb-3">角色档案</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <ProfileField label="身份核心" value={selectedCharacter.identity_core} />
+                <ProfileField label="人格核心" value={selectedCharacter.persona_core} />
+                <ProfileField label="核心动机" value={selectedCharacter.core_motivation} />
+                <ProfileField label="禁忌规则" value={selectedCharacter.taboo_rules} />
               </div>
-            )}
-            {selectedCharacter.persona_core && (
-              <div>
-                <h4 className="text-xs text-gray-500 mb-1">人格核心</h4>
-                <p className="text-sm text-gray-800">{selectedCharacter.persona_core}</p>
+              <div className="mt-3">
+                <ProfileField
+                  label="角色简介"
+                  value={getSoulDescription(selectedCharacter.soul_json)}
+                  multiline
+                />
               </div>
-            )}
-            {selectedCharacter.core_motivation && (
-              <div>
-                <h4 className="text-xs text-gray-500 mb-1">核心动机</h4>
-                <p className="text-sm text-gray-800">{selectedCharacter.core_motivation}</p>
-              </div>
-            )}
+            </div>
 
             {/* SOUL display */}
-            {selectedCharacter.soul_json && selectedCharacter.soul_json !== "{}" && (
-              <div className="border-t border-gray-200 pt-4">
-                <h4 className="font-medium text-gray-900 text-sm mb-3">SOUL 设定</h4>
-                <SoulView soulJson={selectedCharacter.soul_json} />
-              </div>
-            )}
+            <div className="border-t border-gray-200 pt-4">
+              <h4 className="font-medium text-gray-900 text-sm mb-3">SOUL 设定</h4>
+              <SoulView soulJson={selectedCharacter.soul_json} />
+            </div>
           </div>
         )}
       </div>
@@ -821,13 +908,33 @@ export function CharactersPage() {
   );
 }
 
+function ProfileField({
+  label,
+  value,
+  multiline = false,
+}: {
+  label: string;
+  value?: string | null;
+  multiline?: boolean;
+}) {
+  return (
+    <div>
+      <h5 className="text-xs text-gray-500 mb-1">{label}</h5>
+      <p className={`text-sm text-gray-800 ${multiline ? "whitespace-pre-wrap" : ""}`}>
+        {value?.trim() || "暂无"}
+      </p>
+    </div>
+  );
+}
+
 function SoulView({ soulJson }: { soulJson: string }) {
   const soul = parseSoulJson(soulJson);
+  const sections = getSoulSections(soul);
   const [activeTab, setActiveTab] = useState<
     "personality" | "speech" | "behavior" | "relationships"
   >("personality");
 
-  if (!soul.personality && !soul.speech && !soul.behavior && !soul.relationships) {
+  if (!sections.personality && !sections.speech && !sections.behavior && !sections.relationships) {
     return <p className="text-sm text-gray-400">暂无 SOUL 设定</p>;
   }
 
@@ -840,6 +947,12 @@ function SoulView({ soulJson }: { soulJson: string }) {
 
   return (
     <div className="space-y-3">
+      {soul.matched_template && (
+        <div className="inline-flex px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs">
+          匹配模板：{soul.matched_template}
+        </div>
+      )}
+
       <div className="flex gap-1 border-b border-gray-200">
         {tabs.map(({ key, label }) => (
           <button
@@ -856,63 +969,63 @@ function SoulView({ soulJson }: { soulJson: string }) {
         ))}
       </div>
 
-      {activeTab === "personality" && soul.personality && (
+      {activeTab === "personality" && sections.personality && (
         <div className="space-y-2 text-sm">
-          {soul.personality.core_traits && soul.personality.core_traits.length > 0 && (
+          {sections.personality.core_traits && sections.personality.core_traits.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {soul.personality.core_traits.map((t, i) => (
+              {sections.personality.core_traits.map((t, i) => (
                 <span key={i} className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs">
                   {t}
                 </span>
               ))}
             </div>
           )}
-          {soul.personality.emotional_range && (
+          {sections.personality.emotional_range && (
             <p>
               <span className="text-gray-500">情感范围：</span>
-              {soul.personality.emotional_range}
+              {sections.personality.emotional_range}
             </p>
           )}
-          {soul.personality.stress_response && (
+          {sections.personality.stress_response && (
             <p>
               <span className="text-gray-500">压力反应：</span>
-              {soul.personality.stress_response}
+              {sections.personality.stress_response}
             </p>
           )}
-          {soul.personality.growth_direction && (
+          {sections.personality.growth_direction && (
             <p>
               <span className="text-gray-500">成长方向：</span>
-              {soul.personality.growth_direction}
+              {sections.personality.growth_direction}
             </p>
           )}
         </div>
       )}
 
-      {activeTab === "speech" && soul.speech && (
+      {activeTab === "speech" && sections.speech && (
         <div className="space-y-2 text-sm">
-          {soul.speech.tone && (
+          {sections.speech.tone && (
             <p>
               <span className="text-gray-500">语调：</span>
-              {soul.speech.tone}
+              {sections.speech.tone}
             </p>
           )}
-          {soul.speech.vocabulary && (
+          {sections.speech.vocabulary && (
             <p>
               <span className="text-gray-500">词汇风格：</span>
-              {soul.speech.vocabulary}
+              {sections.speech.vocabulary}
             </p>
           )}
-          {soul.speech.sentence_pattern && (
+          {sections.speech.sentence_pattern && (
             <p>
               <span className="text-gray-500">句式：</span>
-              {soul.speech.sentence_pattern}
+              {sections.speech.sentence_pattern}
             </p>
           )}
-          {soul.speech.catchphrases && soul.speech.catchphrases.length > 0 && (
+          {sections.speech.catchphrases && sections.speech.catchphrases.length > 0 && (
             <div>
               <span className="text-gray-500">口头禅：</span>
               <div className="flex flex-wrap gap-1 mt-1">
-                {soul.speech.catchphrases.map((p, i) => (
+                {sections.speech.catchphrases.map((p, i) => (
                   <span key={i} className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
                     「{p}」
                   </span>
@@ -920,11 +1033,11 @@ function SoulView({ soulJson }: { soulJson: string }) {
               </div>
             </div>
           )}
-          {soul.speech.taboo_words && soul.speech.taboo_words.length > 0 && (
+          {sections.speech.taboo_words && sections.speech.taboo_words.length > 0 && (
             <div>
               <span className="text-gray-500">禁用词：</span>
               <div className="flex flex-wrap gap-1 mt-1">
-                {soul.speech.taboo_words.map((w, i) => (
+                {sections.speech.taboo_words.map((w, i) => (
                   <span
                     key={i}
                     className="px-2 py-0.5 bg-red-50 text-red-600 rounded text-xs line-through"
@@ -938,65 +1051,65 @@ function SoulView({ soulJson }: { soulJson: string }) {
         </div>
       )}
 
-      {activeTab === "behavior" && soul.behavior && (
+      {activeTab === "behavior" && sections.behavior && (
         <div className="space-y-2 text-sm">
-          {soul.behavior.posture && (
+          {sections.behavior.posture && (
             <p>
               <span className="text-gray-500">姿态：</span>
-              {soul.behavior.posture}
+              {sections.behavior.posture}
             </p>
           )}
-          {soul.behavior.fighting_style && (
+          {sections.behavior.fighting_style && (
             <p>
               <span className="text-gray-500">战斗风格：</span>
-              {soul.behavior.fighting_style}
+              {sections.behavior.fighting_style}
             </p>
           )}
-          {soul.behavior.decision_pattern && (
+          {sections.behavior.decision_pattern && (
             <p>
               <span className="text-gray-500">决策模式：</span>
-              {soul.behavior.decision_pattern}
+              {sections.behavior.decision_pattern}
             </p>
           )}
-          {soul.behavior.conflict_style && (
+          {sections.behavior.conflict_style && (
             <p>
               <span className="text-gray-500">冲突风格：</span>
-              {soul.behavior.conflict_style}
+              {sections.behavior.conflict_style}
             </p>
           )}
-          {soul.behavior.habit && (
+          {sections.behavior.habit && (
             <p>
               <span className="text-gray-500">习惯：</span>
-              {soul.behavior.habit}
+              {sections.behavior.habit}
             </p>
           )}
         </div>
       )}
 
-      {activeTab === "relationships" && soul.relationships && (
+      {activeTab === "relationships" && sections.relationships && (
         <div className="space-y-2 text-sm">
-          {soul.relationships.default_stance && (
+          {sections.relationships.default_stance && (
             <p>
               <span className="text-gray-500">默认立场：</span>
-              {soul.relationships.default_stance}
+              {sections.relationships.default_stance}
             </p>
           )}
-          {soul.relationships.trust_pattern && (
+          {sections.relationships.trust_pattern && (
             <p>
               <span className="text-gray-500">信任模式：</span>
-              {soul.relationships.trust_pattern}
+              {sections.relationships.trust_pattern}
             </p>
           )}
-          {soul.relationships.conflict_reaction && (
+          {sections.relationships.conflict_reaction && (
             <p>
               <span className="text-gray-500">冲突反应：</span>
-              {soul.relationships.conflict_reaction}
+              {sections.relationships.conflict_reaction}
             </p>
           )}
-          {soul.relationships.loyalty_trigger && (
+          {sections.relationships.loyalty_trigger && (
             <p>
               <span className="text-gray-500">忠诚触发：</span>
-              {soul.relationships.loyalty_trigger}
+              {sections.relationships.loyalty_trigger}
             </p>
           )}
         </div>

@@ -792,6 +792,7 @@ pub async fn run_chapter_pipeline(
         vars.insert("prev_summary".to_string(), prev_summary);
         vars.insert("genre_template".to_string(), genre_template_ctx.clone());
         vars.insert("style_profile".to_string(), style_profile_ctx.clone());
+        vars.insert("de_ai_rules".to_string(), de_ai_rules_ctx.clone());
         vars.insert("min_words".to_string(), "2000".to_string());
         vars.insert("max_words".to_string(), "4000".to_string());
         vars.insert("soul_refs".to_string(), soul_refs_text());

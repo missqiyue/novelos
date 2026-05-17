@@ -21,6 +21,8 @@ export interface CreateProjectInput {
   logline?: string;
   target_words?: number;
   target_volumes?: number;
+  min_chapter_words?: number;
+  max_chapter_words?: number;
 }
 
 export interface ImportResult {
@@ -383,6 +385,7 @@ export const chapterApi = {
     identityCore?: string,
     personaCore?: string,
     coreMotivation?: string,
+    tabooRules?: string,
   ) =>
     invoke<void>("update_character", {
       id,
@@ -392,6 +395,7 @@ export const chapterApi = {
       identityCore,
       personaCore,
       coreMotivation,
+      tabooRules,
     }),
   deleteCharacter: (id: string) => invoke<void>("delete_character", { id }),
   transitionState: (chapterNumber: number, newStatus: string) =>

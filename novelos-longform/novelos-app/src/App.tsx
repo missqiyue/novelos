@@ -31,6 +31,7 @@ import { BookshelfPage } from "./components/bookshelf/BookshelfPage";
 import { ProjectSetupPage } from "./components/project/ProjectSetupPage";
 import { CanonPage } from "./components/canon/CanonPage";
 import { OutlinePage } from "./components/outline/OutlinePage";
+import { BookOutlinePage } from "./components/outline/BookOutlinePage";
 import { ChapterListPage } from "./components/chapter/ChapterListPage";
 import { ChapterWorkbench } from "./components/chapter/ChapterWorkbench";
 import { CharactersPage } from "./components/character/CharactersPage";
@@ -105,6 +106,7 @@ function App() {
         <HashRouter>
           <Routes>
             <Route path="/" element={<BookshelfPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/project/:projectId" element={<AppShell />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
@@ -118,6 +120,7 @@ function App() {
               <Route path="foreshadow-calendar" element={<ForeshadowCalendar />} />
               <Route path="sprint-timer" element={<SprintTimerPage />} />
               <Route path="canon" element={<CanonPage />} />
+              <Route path="book-outline" element={<BookOutlinePage />} />
               <Route path="outline" element={<OutlinePage />} />
               <Route path="chapter-planning" element={<ChapterPlanningBoard />} />
               <Route path="volume-stats" element={<VolumeStatsPage />} />

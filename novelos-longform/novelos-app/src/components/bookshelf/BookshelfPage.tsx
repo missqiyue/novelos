@@ -4,7 +4,6 @@ import { useBookshelfStore } from "../../stores";
 import { projectApi, bookshelfApi, type ImportResult } from "../../lib/api";
 import { openFileDialog } from "../../lib/platform";
 import {
-  Plus,
   BookOpen,
   Trash2,
   Download,
@@ -14,7 +13,7 @@ import {
   FolderOpen,
   Archive,
   FileText,
-  X,
+  Settings,
 } from "lucide-react";
 import { TaskBadge } from "../common/TaskIndicator";
 import { WelcomeWizard, useOnboarding } from "../onboarding/WelcomeWizard";
@@ -28,10 +27,8 @@ const statusColors: Record<string, string> = {
 };
 
 export function BookshelfPage() {
-  const { items, loading, fetch, addProject, openProject, removeItem } = useBookshelfStore();
+  const { items, loading, fetch, addProject, openProject } = useBookshelfStore();
   const navigate = useNavigate();
-  const [showNew, setShowNew] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -48,16 +45,6 @@ export function BookshelfPage() {
     fetch();
   }, [fetch]);
 
-  const handleCreate = async () => {
-    if (!newTitle.trim()) return;
-    const project = await addProject(newTitle.trim());
-    if (project) {
-      setNewTitle("");
-      setShowNew(false);
-      navigate(`/project/${project.id}`);
-    }
-  };
-
   const handleOpen = async (projectId: string) => {
     const project = await openProject(projectId);
     if (project) {
@@ -65,7 +52,7 @@ export function BookshelfPage() {
     }
   };
 
-  const handleDelete = async (projectId: string, itemId: string) => {
+  const handleDelete = async (projectId: string) => {
     await projectApi.delete(projectId);
     setConfirmDeleteId(null);
     fetch();
@@ -167,7 +154,7 @@ export function BookshelfPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {showWizard && <WelcomeWizard onComplete={completeWizard} />}
-        <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
@@ -178,18 +165,18 @@ export function BookshelfPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
+              onClick={() => navigate("/settings")}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Settings size={18} />
+              设置
+            </button>
+            <button
               onClick={() => navigate("/quick-start")}
               className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
             >
               <Zap size={18} />
               快速开始
-            </button>
-            <button
-              onClick={() => setShowNew(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Plus size={18} />
-              新建长篇
             </button>
             <button
               onClick={async () => {
@@ -219,44 +206,12 @@ export function BookshelfPage() {
           </div>
         </div>
 
-        {showNew && (
-          <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-            <h3 className="font-medium text-gray-900 mb-3">创建新项目</h3>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                placeholder="输入书名..."
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                autoFocus
-              />
-              <button
-                onClick={handleCreate}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
-              >
-                创建
-              </button>
-              <button
-                onClick={() => {
-                  setShowNew(false);
-                  setNewTitle("");
-                }}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        )}
-
         {loading ? (
           <div className="text-center py-12 text-gray-500">加载中...</div>
         ) : items.length === 0 ? (
           <div className="text-center py-16">
             <BookOpen size={48} className="mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500">书架空空如也，点击「新建长篇」开始创作</p>
+            <p className="text-gray-500">书架空空如也，可以先导入TXT或创建示例项目</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -350,7 +305,7 @@ export function BookshelfPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDelete(item.project_id, item.id);
+                            handleDelete(item.project_id);
                           }}
                           className="px-1.5 py-0.5 bg-red-500 text-white rounded text-[10px] hover:bg-red-600"
                         >

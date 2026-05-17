@@ -51,6 +51,7 @@ import {
   orchestratorApi,
   ledgerApi,
   crashRecoveryApi,
+  sharedResourcesApi,
   type CompileResult,
   type PipelineResult,
   type ChapterQualityReport,
@@ -60,6 +61,7 @@ import {
   type CrashRecoveryInfo,
   type ParagraphRewriteResult,
   type NotificationInfo,
+  type DeAiRuleInfo,
 } from "../../lib/api";
 import type { ChapterVersionInfo } from "../../lib/api";
 import { DiffViewer } from "../common/DiffViewer";
@@ -112,6 +114,20 @@ function parseChapterDraft(raw: string): { title: string; content: string } {
   if (content) return { title, content };
   // Fallback: no structured tags found, treat whole raw as content
   return { title: "", content: raw.trim() };
+}
+
+function formatDeAiRulesForPrompt(rules: DeAiRuleInfo[]): string {
+  const enabled = rules.filter((rule) => rule.is_enabled);
+  if (enabled.length === 0) {
+    return "避免高频AI用词，打破模板化句式，减少过度比喻";
+  }
+  return enabled
+    .map((rule) => {
+      const replacement = rule.replacement?.trim() ? ` -> ${rule.replacement.trim()}` : "";
+      const description = rule.description?.trim() ? `：${rule.description.trim()}` : "";
+      return `- [${rule.category}][${rule.severity}] ${rule.pattern}${replacement}${description}`;
+    })
+    .join("\n");
 }
 
 const expertNameLabels: Record<string, string> = {
@@ -837,6 +853,12 @@ export function ChapterWorkbench() {
       .filter((c) => c.status === "active")
       .map((c) => `${c.name}(${c.role_type}): ${c.soul_json.slice(0, 200)}`)
       .join("\n");
+    let deAiRulesText = "避免高频AI用词，打破模板化句式，减少过度比喻";
+    try {
+      deAiRulesText = formatDeAiRulesForPrompt(await sharedResourcesApi.getEffectiveDeAiRules());
+    } catch {
+      // Keep generation available if project-level resource lookup fails.
+    }
 
     const taskCard = currentChapter?.task_id || `第${num}章写作任务`;
     const outlineText = chapterOutline?.content_json || "暂无章节大纲";
@@ -849,6 +871,9 @@ export function ChapterWorkbench() {
 
 正典规则:
 ${canonText || "暂无"}
+
+去AI规则:
+${deAiRulesText}
 
 角色参考:
 ${soulText || "暂无"}`,
@@ -874,6 +899,7 @@ ${soulText || "暂无"}`,
         task_card: taskCard,
         chapter_outline: outlineText,
         canon_rules: canonText || "暂无",
+        de_ai_rules: deAiRulesText,
         prev_summary: "（前文摘要待实现）",
       });
 
@@ -896,11 +922,17 @@ ${soulText || "暂无"}`,
       .filter((c) => c.status === "active")
       .map((c) => `${c.name}: ${c.soul_json.slice(0, 200)}`)
       .join("\n");
+    let deAiRulesText = "避免高频AI用词，打破模板化句式，减少过度比喻";
+    try {
+      deAiRulesText = formatDeAiRulesForPrompt(await sharedResourcesApi.getEffectiveDeAiRules());
+    } catch {
+      // Keep the manual filter usable even if shared resources cannot be loaded.
+    }
 
     const result = await runAgent("voice_filter", {
       draft_text: draftText,
       soul_refs: soulText || "暂无",
-      de_ai_rules: "避免高频AI用词，打破模板化句式，减少过度比喻",
+      de_ai_rules: deAiRulesText,
     });
 
     if (result) {

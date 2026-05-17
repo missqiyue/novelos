@@ -25,6 +25,9 @@ mod agent_tests {
     #[test]
     fn test_name_generator_prompts() {
         assert!(!agents::name_generator::SYSTEM.is_empty());
+        assert!(agents::name_generator::SYSTEM.contains("角色档案"));
+        assert!(agents::name_generator::SYSTEM.contains("identity_core"));
+        assert!(agents::name_generator::SYSTEM.contains("persona_core"));
         assert!(agents::name_generator::USER_TEMPLATE.contains("{character_descriptions}"));
     }
 
@@ -81,48 +84,48 @@ mod agent_tests {
         let agents_list = [
             (
                 "plot_expert",
-                &agents::plot_expert::SYSTEM,
-                &agents::plot_expert::USER_TEMPLATE,
+                &agents::experts::plot_expert::SYSTEM,
+                &agents::experts::plot_expert::USER_TEMPLATE,
             ),
             (
                 "character_expert",
-                &agents::character_expert::SYSTEM,
-                &agents::character_expert::USER_TEMPLATE,
+                &agents::experts::character_expert::SYSTEM,
+                &agents::experts::character_expert::USER_TEMPLATE,
             ),
             (
                 "pacing_expert",
-                &agents::pacing_expert::SYSTEM,
-                &agents::pacing_expert::USER_TEMPLATE,
+                &agents::experts::pacing_expert::SYSTEM,
+                &agents::experts::pacing_expert::USER_TEMPLATE,
             ),
             (
                 "worldbuilding_expert",
-                &agents::worldbuilding_expert::SYSTEM,
-                &agents::worldbuilding_expert::USER_TEMPLATE,
+                &agents::experts::worldbuilding_expert::SYSTEM,
+                &agents::experts::worldbuilding_expert::USER_TEMPLATE,
             ),
             (
                 "prose_expert",
-                &agents::prose_expert::SYSTEM,
-                &agents::prose_expert::USER_TEMPLATE,
+                &agents::experts::prose_expert::SYSTEM,
+                &agents::experts::prose_expert::USER_TEMPLATE,
             ),
             (
                 "commercial_expert",
-                &agents::commercial_expert::SYSTEM,
-                &agents::commercial_expert::USER_TEMPLATE,
+                &agents::experts::commercial_expert::SYSTEM,
+                &agents::experts::commercial_expert::USER_TEMPLATE,
             ),
             (
                 "reader_panel",
-                &agents::reader_panel::SYSTEM,
-                &agents::reader_panel::USER_TEMPLATE,
+                &agents::experts::reader_panel::SYSTEM,
+                &agents::experts::reader_panel::USER_TEMPLATE,
             ),
             (
                 "voice_audit",
-                &agents::voice_audit::SYSTEM,
-                &agents::voice_audit::USER_TEMPLATE,
+                &agents::experts::voice_audit::SYSTEM,
+                &agents::experts::voice_audit::USER_TEMPLATE,
             ),
             (
                 "review_chair",
-                &agents::review_chair::SYSTEM,
-                &agents::review_chair::USER_TEMPLATE,
+                &agents::experts::review_chair::SYSTEM,
+                &agents::experts::review_chair::USER_TEMPLATE,
             ),
         ];
         for (name, sys, user) in &agents_list {

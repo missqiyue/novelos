@@ -29,7 +29,9 @@ import {
 const navItems = [
   { to: "dashboard", label: "看板", icon: LayoutDashboard },
   { to: "canon", label: "正典", icon: ScrollText },
+  { to: "book-outline", label: "全书大纲", icon: BookOpen },
   { to: "outline", label: "剧情树", icon: GitBranch },
+  { to: "chapter-outline", label: "章节大纲", icon: FileText },
   { to: "chapters", label: "章节", icon: FileText },
   { to: "characters", label: "角色", icon: Users },
   { to: "ledger", label: "账本", icon: Library },
@@ -42,7 +44,9 @@ const navItems = [
 const PATH_MEMORY_SECTIONS = new Set([
   "dashboard",
   "canon",
+  "book-outline",
   "outline",
+  "chapter-outline",
   "chapters",
   "chapter",
   "characters",
