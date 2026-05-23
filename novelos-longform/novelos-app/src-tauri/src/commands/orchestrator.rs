@@ -414,6 +414,7 @@ pub async fn run_chapter_pipeline(
     let (
         genre,
         lt,
+        book_outline_ctx,
         volume_ctx,
         chapter_outlines_ctx,
         soul_refs,
@@ -434,6 +435,7 @@ pub async fn run_chapter_pipeline(
         let snapshot = recall::fetch_recent_snapshot(conn, chapter_number);
         let foreshadows = recall::fetch_foreshadows_and_events(conn, chapter_number);
         let soft_rules = recall::fetch_soft_rules(conn);
+        let book_outline_ctx = recall::fetch_book_outline_context(conn);
         let volume_ctx = recall::fetch_volume_outline(conn, chapter_number);
         let chapter_outlines_ctx = recall::fetch_chapter_outlines(conn, chapter_number);
         let soul_refs = recall::fetch_soul_templates(conn);
@@ -521,6 +523,7 @@ pub async fn run_chapter_pipeline(
         (
             genre,
             lt,
+            book_outline_ctx,
             volume_ctx,
             chapter_outlines_ctx,
             soul_refs,
@@ -570,6 +573,30 @@ pub async fn run_chapter_pipeline(
             "暂无伏笔".to_string()
         }
     };
+    let book_outline_text = || -> String {
+        if !book_outline_ctx.is_empty() {
+            book_outline_ctx.clone()
+        } else {
+            "暂无全书大纲与书籍设定".to_string()
+        }
+    };
+    let outline_context_text = |lt: &recall::RecallLayerTexts| -> String {
+        let mut text = String::new();
+        if !book_outline_ctx.is_empty() {
+            text.push_str(&book_outline_ctx);
+        }
+        if !volume_ctx.is_empty() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&volume_ctx);
+        }
+        if text.is_empty() {
+            snapshot_text(lt)
+        } else {
+            text
+        }
+    };
 
     // Step 1: Generate task card
     {
@@ -578,14 +605,8 @@ pub async fn run_chapter_pipeline(
         vars.insert("genre_template".to_string(), genre_template_ctx.clone());
         vars.insert("current_volume".to_string(), "1".to_string());
         vars.insert("chapter_number".to_string(), chapter_number.to_string());
-        vars.insert(
-            "outline_context".to_string(),
-            if volume_ctx.is_empty() {
-                snapshot_text(&lt)
-            } else {
-                volume_ctx.clone()
-            },
-        );
+        vars.insert("book_outline_context".to_string(), book_outline_text());
+        vars.insert("outline_context".to_string(), outline_context_text(&lt));
         vars.insert("prev_chapters_summary".to_string(), snapshot_text(&lt));
         vars.insert("canon_rules".to_string(), canon_rules_text(&lt));
         vars.insert(
@@ -699,6 +720,7 @@ pub async fn run_chapter_pipeline(
         let task_card = outputs[0].clone().unwrap_or_default();
         let mut vars = HashMap::new();
         vars.insert("task_card".to_string(), task_card);
+        vars.insert("book_outline_context".to_string(), book_outline_text());
         vars.insert(
             "volume_context".to_string(),
             if volume_ctx.is_empty() {
@@ -788,6 +810,7 @@ pub async fn run_chapter_pipeline(
         let mut vars = HashMap::new();
         vars.insert("task_card".to_string(), task_card);
         vars.insert("chapter_outline".to_string(), chapter_outline);
+        vars.insert("book_outline_context".to_string(), book_outline_text());
         vars.insert("canon_rules".to_string(), canon_rules_text(&lt));
         vars.insert("prev_summary".to_string(), prev_summary);
         vars.insert("genre_template".to_string(), genre_template_ctx.clone());

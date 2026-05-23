@@ -1,6 +1,7 @@
 use crate::agents;
 use crate::commands::llm::LlmState;
 use crate::commands::llm::{create_llm_call_log, finalize_llm_call_log, log_llm_response_events};
+use crate::commands::recall;
 use crate::db::DbState;
 use crate::llm::{ChatMessage, LlmService};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,18 @@ pub struct AgentInfo {
 }
 
 const AGENT_LIST: &[(&str, &str)] = &[
+    (
+        "book_opening_conversation",
+        "交互式开书 — 多轮追问并确认开书信息",
+    ),
+    (
+        "book_opening_finalizer",
+        "交互式开书 — 基于确认上下文生成最终开书素材",
+    ),
+    (
+        "book_seed_analyst",
+        "智能开书 — 单 Agent 分析描述并生成完整开书方案",
+    ),
     (
         "genre_match",
         "题材识别 — 分析小说描述，匹配最合适的题材模板",
@@ -103,11 +116,32 @@ pub async fn run_agent(
     log::info!("run_agent '{}' starting", agent_name);
     let (system_prompt, user_template) = get_prompts_with_db_fallback(&db, &agent_name)?;
 
+    let mut variables = variables;
+    inject_project_generation_context(&db, &agent_name, &mut variables);
+
     let mut system_prompt = system_prompt.to_string();
     let mut user_prompt = user_template.to_string();
     for (key, value) in &variables {
         system_prompt = system_prompt.replace(&format!("{{{key}}}"), value);
         user_prompt = user_prompt.replace(&format!("{{{key}}}"), value);
+    }
+    if matches!(
+        agent_name.as_str(),
+        "task_card" | "chapter_outline" | "draft_writer"
+    ) {
+        if let Some(book_outline_context) = variables
+            .get("book_outline_context")
+            .filter(|value| !value.trim().is_empty())
+        {
+            if !system_prompt.contains(book_outline_context)
+                && !user_prompt.contains(book_outline_context)
+            {
+                user_prompt = format!(
+                    "全书大纲与书籍设定（必须优先遵守）：\n{}\n\n{}",
+                    book_outline_context, user_prompt
+                );
+            }
+        }
     }
     if matches!(agent_name.as_str(), "draft_writer" | "voice_filter") {
         if let Some(de_ai_rules) = variables.get("de_ai_rules").filter(|value| !value.trim().is_empty()) {
@@ -260,6 +294,18 @@ fn get_agent_prompts(name: &str) -> Result<(String, String), String> {
 /// Get hardcoded default prompts for an agent.
 fn get_default_prompts(name: &str) -> Result<(&'static str, &'static str), String> {
     match name {
+        "book_opening_conversation" => Ok((
+            agents::book_opening_conversation::SYSTEM,
+            agents::book_opening_conversation::USER_TEMPLATE,
+        )),
+        "book_opening_finalizer" => Ok((
+            agents::book_opening_finalizer::SYSTEM,
+            agents::book_opening_finalizer::USER_TEMPLATE,
+        )),
+        "book_seed_analyst" => Ok((
+            agents::book_seed_analyst::SYSTEM,
+            agents::book_seed_analyst::USER_TEMPLATE,
+        )),
         "genre_match" => Ok((
             agents::genre_match::SYSTEM,
             agents::genre_match::USER_TEMPLATE,
@@ -463,6 +509,44 @@ pub fn list_agent_logs(
         .map_err(|e| e.to_string())?;
 
     Ok(items)
+}
+
+fn inject_project_generation_context(
+    db: &State<'_, DbState>,
+    agent_name: &str,
+    variables: &mut HashMap<String, String>,
+) {
+    let needs_book_outline =
+        matches!(agent_name, "task_card" | "chapter_outline" | "draft_writer");
+    if !needs_book_outline {
+        return;
+    }
+
+    let should_inject = variables
+        .get("book_outline_context")
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(true);
+    if !should_inject {
+        return;
+    }
+
+    let Ok(project_conn) = db.lock_project_recover() else {
+        variables
+            .entry("book_outline_context".to_string())
+            .or_insert_with(String::new);
+        return;
+    };
+    let Some(conn) = project_conn.as_ref() else {
+        variables
+            .entry("book_outline_context".to_string())
+            .or_insert_with(String::new);
+        return;
+    };
+
+    variables.insert(
+        "book_outline_context".to_string(),
+        recall::fetch_book_outline_context(conn),
+    );
 }
 
 #[derive(Debug, Serialize, Deserialize)]

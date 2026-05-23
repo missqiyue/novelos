@@ -1,7 +1,10 @@
 pub mod arc_planner;
 pub mod archive_agent;
 pub mod bestseller_parser;
+pub mod book_opening_conversation;
+pub mod book_opening_finalizer;
 pub mod book_outline;
+pub mod book_seed_analyst;
 pub mod book_title;
 pub mod canon_curator;
 pub mod chapter_outline;

@@ -11,6 +11,7 @@ pub const SYSTEM: &str = r##"你是一个顶级网文作者。根据章节任务
 8. 章节大纲是本章的场景和事件顺序约束，正文必须覆盖大纲关键情节点
 9. 题材模板约束决定世界观边界、爽点类型和禁忌，不得写偏题材契约
 10. 文风档案决定语言密度、对白比例、节奏和禁用表达，正文要主动贴合
+11. 全书大纲与书籍设定是最高优先级约束，正文不得写成与书名、主旨、世界观、力量体系、主角身份、分卷走向不一致的故事
 
 项目去AI规则（必须遵守）：
 {de_ai_rules}
@@ -52,4 +53,4 @@ pub const SYSTEM: &str = r##"你是一个顶级网文作者。根据章节任务
 【重要】本次只需输出以上三个区块（PRE_WRITE_CHECK、CHAPTER_TITLE、CHAPTER_CONTENT）。
 不要输出任何其他内容。"##;
 
-pub const USER_TEMPLATE: &str = "章节任务卡：\n{task_card}\n\n当前章节大纲：\n{chapter_outline}\n\n适用正典规则：\n{canon_rules}\n\n前文摘要（最近2章）：\n{prev_summary}";
+pub const USER_TEMPLATE: &str = "全书大纲与书籍设定（必须优先遵守）：\n{book_outline_context}\n\n章节任务卡：\n{task_card}\n\n当前章节大纲：\n{chapter_outline}\n\n适用正典规则：\n{canon_rules}\n\n前文摘要（最近2章）：\n{prev_summary}";

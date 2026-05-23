@@ -886,6 +886,211 @@ fn compact_json_field(label: &str, value: &str) -> String {
     format!("- {}: {}\n", label, value)
 }
 
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut text: String = trimmed.chars().take(max_chars).collect();
+    text.push_str("...");
+    text
+}
+
+fn value_to_compact_text(value: &serde_json::Value, max_chars: usize) -> String {
+    if let Some(s) = value.as_str() {
+        return truncate_chars(s, max_chars);
+    }
+    if value.is_null() {
+        return String::new();
+    }
+    truncate_chars(&value.to_string(), max_chars)
+}
+
+fn push_json_text_field(
+    text: &mut String,
+    json: &serde_json::Value,
+    key: &str,
+    label: &str,
+    max_chars: usize,
+) {
+    if let Some(value) = json.get(key) {
+        let formatted = value_to_compact_text(value, max_chars);
+        if !formatted.is_empty() {
+            text.push_str(&format!("{}: {}\n", label, formatted));
+        }
+    }
+}
+
+/// Fetch the latest book-level outline and project-facing story bible.
+/// This context is used by chapter task/outline/draft generation as the
+/// highest-level constraint, so new chapters stay anchored to the opened book.
+pub fn fetch_book_outline_context(conn: &rusqlite::Connection) -> String {
+    let outline_json = conn
+        .query_row(
+            "SELECT content_json
+             FROM book_outlines
+             ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'confirmed' THEN 1 ELSE 2 END,
+                      version DESC,
+                      updated_at DESC
+             LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok();
+
+    let mut text = String::from("【全书大纲与书籍设定（最高优先级）】\n");
+    let mut has_any = false;
+
+    if let Some(raw) = outline_json.as_deref() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
+            push_json_text_field(&mut text, &json, "title", "书名", 120);
+            push_json_text_field(&mut text, &json, "genre", "题材", 120);
+            push_json_text_field(&mut text, &json, "main_theme", "主旨", 500);
+            push_json_text_field(&mut text, &json, "world_framework", "世界观", 900);
+            push_json_text_field(&mut text, &json, "power_system", "力量体系", 700);
+            push_json_text_field(&mut text, &json, "volume_structure", "卷结构", 1800);
+            push_json_text_field(&mut text, &json, "outline", "全书大纲", 2600);
+
+            if let Some(chars) = json.get("main_characters").and_then(|v| v.as_array()) {
+                if !chars.is_empty() {
+                    text.push_str("主要角色:\n");
+                    for ch in chars.iter().take(12) {
+                        let name = ch
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("未命名角色");
+                        let role = ch
+                            .get("role")
+                            .or_else(|| ch.get("positioning"))
+                            .or_else(|| ch.get("role_type"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let summary = ch
+                            .get("summary")
+                            .or_else(|| ch.get("description"))
+                            .or_else(|| ch.get("intro"))
+                            .map(|v| value_to_compact_text(v, 180))
+                            .unwrap_or_default();
+                        text.push_str(&format!(
+                            "- {}{}{}\n",
+                            name,
+                            if role.is_empty() {
+                                String::new()
+                            } else {
+                                format!("（{}）", role)
+                            },
+                            if summary.is_empty() {
+                                String::new()
+                            } else {
+                                format!(": {}", summary)
+                            }
+                        ));
+                    }
+                }
+            }
+
+            if let Some(volumes) = json.get("volumes").and_then(|v| v.as_array()) {
+                if !volumes.is_empty() {
+                    text.push_str("分卷摘要:\n");
+                    for (idx, vol) in volumes.iter().take(12).enumerate() {
+                        let title = vol
+                            .get("title")
+                            .or_else(|| vol.get("name"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("未命名卷");
+                        let goal = vol
+                            .get("goal")
+                            .or_else(|| vol.get("objective"))
+                            .map(|v| value_to_compact_text(v, 180))
+                            .unwrap_or_default();
+                        let conflict = vol
+                            .get("conflict")
+                            .or_else(|| vol.get("main_conflict"))
+                            .map(|v| value_to_compact_text(v, 180))
+                            .unwrap_or_default();
+                        text.push_str(&format!("- 第{}卷《{}》", idx + 1, title));
+                        if !goal.is_empty() {
+                            text.push_str(&format!(" 目标: {}", goal));
+                        }
+                        if !conflict.is_empty() {
+                            text.push_str(&format!(" 冲突: {}", conflict));
+                        }
+                        text.push('\n');
+                    }
+                }
+            }
+
+            has_any = text.lines().count() > 1;
+        } else if !raw.trim().is_empty() {
+            text.push_str(&truncate_chars(raw, 4000));
+            text.push('\n');
+            has_any = true;
+        }
+    }
+
+    let mut stmt = match conn.prepare(
+        "SELECT volume_number, title, goal, main_conflict, climax, settlement
+         FROM volumes
+         ORDER BY volume_number
+         LIMIT 12",
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => {
+            return if has_any { text } else { String::new() };
+        }
+    };
+
+    let rows: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+        match stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        }) {
+            Ok(mapped) => mapped.filter_map(|row| row.ok()).collect(),
+            Err(_) => Vec::new(),
+        };
+
+    if !rows.is_empty() {
+        text.push_str("数据库卷纲:\n");
+        for (num, title, goal, conflict, climax, settlement) in rows {
+            text.push_str(&format!(
+                "- 第{}卷{}",
+                num,
+                title
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| format!("《{}》", value.trim()))
+                    .unwrap_or_default()
+            ));
+            if let Some(value) = goal.as_deref().filter(|value| !value.trim().is_empty()) {
+                text.push_str(&format!(" 目标: {}", truncate_chars(value, 180)));
+            }
+            if let Some(value) = conflict.as_deref().filter(|value| !value.trim().is_empty()) {
+                text.push_str(&format!(" 冲突: {}", truncate_chars(value, 180)));
+            }
+            if let Some(value) = climax.as_deref().filter(|value| !value.trim().is_empty()) {
+                text.push_str(&format!(" 高潮: {}", truncate_chars(value, 180)));
+            }
+            if let Some(value) = settlement.as_deref().filter(|value| !value.trim().is_empty()) {
+                text.push_str(&format!(" 余波: {}", truncate_chars(value, 160)));
+            }
+            text.push('\n');
+        }
+        has_any = true;
+    }
+
+    if has_any {
+        text
+    } else {
+        String::new()
+    }
+}
+
 /// Fetch the applied genre template settings as generation context.
 pub fn fetch_genre_template_context(conn: &rusqlite::Connection) -> String {
     let fields = [

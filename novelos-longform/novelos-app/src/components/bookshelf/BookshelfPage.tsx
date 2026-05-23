@@ -172,8 +172,15 @@ export function BookshelfPage() {
               设置
             </button>
             <button
-              onClick={() => navigate("/quick-start")}
+              onClick={() => navigate("/quick-start?mode=chat")}
               className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+            >
+              <Zap size={18} />
+              智能开书
+            </button>
+            <button
+              onClick={() => navigate("/quick-start")}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               <Zap size={18} />
               快速开始

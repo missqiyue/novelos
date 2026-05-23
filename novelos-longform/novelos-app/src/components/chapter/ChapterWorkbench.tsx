@@ -62,6 +62,8 @@ import {
   type ParagraphRewriteResult,
   type NotificationInfo,
   type DeAiRuleInfo,
+  type BookOutlineInfo,
+  type VolumeInfo,
 } from "../../lib/api";
 import type { ChapterVersionInfo } from "../../lib/api";
 import { DiffViewer } from "../common/DiffViewer";
@@ -128,6 +130,65 @@ function formatDeAiRulesForPrompt(rules: DeAiRuleInfo[]): string {
       return `- [${rule.category}][${rule.severity}] ${rule.pattern}${replacement}${description}`;
     })
     .join("\n");
+}
+
+function truncateForPrompt(value: unknown, maxLength: number): string {
+  const text =
+    typeof value === "string" ? value.trim() : value == null ? "" : JSON.stringify(value);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}...`;
+}
+
+function formatBookOutlineForPrompt(outline: BookOutlineInfo | null, volumes: VolumeInfo[]): string {
+  const parts: string[] = [];
+  if (outline?.content_json) {
+    try {
+      const data = JSON.parse(outline.content_json);
+      const fields: Array<[string, string, number]> = [
+        ["title", "书名", 120],
+        ["genre", "题材", 120],
+        ["main_theme", "主旨", 500],
+        ["world_framework", "世界观", 900],
+        ["power_system", "力量体系", 700],
+        ["volume_structure", "卷结构", 1600],
+        ["outline", "全书大纲", 2400],
+      ];
+      for (const [key, label, limit] of fields) {
+        const value = truncateForPrompt(data?.[key], limit);
+        if (value) parts.push(`${label}: ${value}`);
+      }
+      if (Array.isArray(data?.main_characters) && data.main_characters.length > 0) {
+        const chars = data.main_characters
+          .slice(0, 12)
+          .map((item: any) => {
+            const name = item?.name || "未命名角色";
+            const role = item?.role || item?.positioning || item?.role_type || "";
+            const summary = truncateForPrompt(item?.summary || item?.description || item?.intro, 160);
+            return `- ${name}${role ? `（${role}）` : ""}${summary ? `: ${summary}` : ""}`;
+          })
+          .join("\n");
+        if (chars) parts.push(`主要角色:\n${chars}`);
+      }
+    } catch {
+      parts.push(truncateForPrompt(outline.content_json, 4000));
+    }
+  }
+
+  if (volumes.length > 0) {
+    parts.push(
+      `数据库卷纲:\n${volumes
+        .slice(0, 12)
+        .map((volume) => {
+          const title = volume.title ? `《${volume.title}》` : "";
+          return `- 第${volume.volume_number}卷${title} 目标: ${volume.goal || "未设定"} 冲突: ${
+            volume.main_conflict || "未设定"
+          } 高潮: ${volume.climax || "未设定"}`;
+        })
+        .join("\n")}`,
+    );
+  }
+
+  return parts.length > 0 ? `【全书大纲与书籍设定（最高优先级）】\n${parts.join("\n")}` : "暂无全书大纲与书籍设定";
 }
 
 const expertNameLabels: Record<string, string> = {
@@ -434,6 +495,7 @@ export function ChapterWorkbench() {
   const [lastSavedText, setLastSavedText] = useState("");
   const [outlineExpanded, setOutlineExpanded] = useState(true);
   const [chapterOutline, setChapterOutline] = useState<ChapterOutlineInfo | null>(null);
+  const [bookOutlineContext, setBookOutlineContext] = useState("暂无全书大纲与书籍设定");
   const [outlineLoading, setOutlineLoading] = useState(false);
   const [compileExpanded, setCompileExpanded] = useState(false);
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
@@ -509,6 +571,18 @@ export function ChapterWorkbench() {
     }
   }, [num]);
 
+  const fetchBookOutlineContext = useCallback(async () => {
+    try {
+      const [outline, volumes] = await Promise.all([
+        outlineApi.getBookOutline(),
+        outlineApi.listVolumes(),
+      ]);
+      setBookOutlineContext(formatBookOutlineForPrompt(outline, volumes));
+    } catch {
+      setBookOutlineContext("暂无全书大纲与书籍设定");
+    }
+  }, []);
+
   useEffect(() => {
     fetchChapters();
     selectChapter(num);
@@ -516,6 +590,7 @@ export function ChapterWorkbench() {
     fetchCanon();
     fetchTasks();
     fetchLatestOutline();
+    fetchBookOutlineContext();
   }, [
     num,
     fetchChapters,
@@ -524,6 +599,7 @@ export function ChapterWorkbench() {
     fetchCanon,
     fetchTasks,
     fetchLatestOutline,
+    fetchBookOutlineContext,
   ]);
 
   useEffect(() => {
@@ -756,6 +832,7 @@ export function ChapterWorkbench() {
         genre: "玄幻",
         current_volume: "1",
         chapter_number: String(num),
+        book_outline_context: bookOutlineContext,
         outline_context: "",
         prev_chapters_summary: "",
         canon_rules: canonText || "暂无",
@@ -869,6 +946,9 @@ export function ChapterWorkbench() {
           role: "system",
           content: `你是一位经验丰富的长篇小说作家。请根据以下信息撰写本章草稿，要求2000-4000字。
 
+全书大纲与书籍设定（最高优先级）:
+${bookOutlineContext}
+
 正典规则:
 ${canonText || "暂无"}
 
@@ -896,6 +976,7 @@ ${soulText || "暂无"}`,
         min_words: "2000",
         max_words: "4000",
         soul_refs: soulText || "暂无",
+        book_outline_context: bookOutlineContext,
         task_card: taskCard,
         chapter_outline: outlineText,
         canon_rules: canonText || "暂无",
